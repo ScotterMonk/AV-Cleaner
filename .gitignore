@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python/
+
+# VSCode
+.vscode/
+*.code-workspace
+.roo/
+
+# Env
+venv/
+desktop.ini
+config.*
+.env
+activate.ps1
+
+# Misc
+notes/
+temp/
+*.af
+*.afphoto
