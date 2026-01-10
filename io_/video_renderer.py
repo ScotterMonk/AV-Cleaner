@@ -22,10 +22,9 @@ def build_cpu_enc_opts(config):
 
 
 def build_nvenc_enc_opts(config):
-    """Pure helper to build NVENC encoder options for ffmpeg.output().
-
-    Notes:
-      - NVENC does not support x264/libx264's CRF, so this intentionally omits "crf".
+    """
+    Pure helper to build NVENC encoder options for ffmpeg.output().
+    - NVENC does not support x264/libx264's CRF, so this intentionally omits "crf".
     """
     config = config or {}
     nvenc = config.get("nvenc") or {}
@@ -59,15 +58,18 @@ def build_input_kwargs(config, caps):
 
 # Modified by gpt-5.2 | 2026-01-09_02
 def select_enc_opts(config, caps):
-    """Select encoder options for ffmpeg.output() based on config + probed FFmpeg caps.
-
+    """
+    Select encoder options for ffmpeg.output() based on config + probed FFmpeg caps.
     Rules:
-      - If cuda_encode_enabled is False: always CPU encode.
-      - If cuda_encode_enabled is True:
-          - If NVENC is supported (desired codec present OR at least h264_nvenc): use NVENC opts.
-          - Else:
-              - If cuda_require_support is True: raise with a clear message.
-              - Else: warn (ALL CAPS) and fall back to CPU opts.
+    - If cuda_encode_enabled is False: always CPU encode.
+    - If cuda_encode_enabled is True:
+        - If NVENC is supported (desired codec present OR at least h264_nvenc):
+            Use NVENC opts.
+        - Else:
+            - If cuda_require_support is True:
+                Raise with a clear message.
+            - Else:
+                Warn (ALL CAPS) and fall back to CPU opts.
     """
 
     config = config or {}

@@ -19,6 +19,7 @@ from tkinter import filedialog, messagebox
 import ffmpeg
 
 from config import GUI
+from utils.path_helpers import make_fixed_output_path, make_processed_output_path
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -551,8 +552,8 @@ class MainPage(tk.Frame):
 
         # Match the pipeline naming behavior (_processed.mp4) so we can locate outputs.
         # Note: "NORMALIZE GUEST AUDIO" intentionally does NOT generate a new host file.
-        host_processed = host.replace(".mp4", "_processed.mp4")
-        guest_processed = guest.replace(".mp4", "_processed.mp4")
+        host_processed = make_processed_output_path(host)
+        guest_processed = make_processed_output_path(guest)
 
         host_exists = os.path.exists(host_processed)
         guest_exists = os.path.exists(guest_processed)
@@ -566,9 +567,7 @@ class MainPage(tk.Frame):
             return
 
         def to_fixed(path: str) -> str:
-            if path.lower().endswith(".mp4"):
-                return path[:-4] + "_fixed.mp4"
-            return path + "_fixed"
+            return make_fixed_output_path(path)
 
         try:
             saved_lines = []
