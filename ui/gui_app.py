@@ -13,7 +13,9 @@ from tkinter import filedialog, messagebox
 
 from config import GUI
 from ui.gui_helpers import FileRowState, format_bytes, get_video_duration_seconds
-from ui.gui_pages import MainPage, SettingsPage
+from ui.gui_pages import MainPage
+from ui.gui_settings_page import SettingsPage
+from ui.gui_ffmpeg_formatter import format_ffmpeg_progress_line, should_show_progress_line, reset_progress_counter
 from utils.path_helpers import make_fixed_output_path, make_processed_output_path
 
 
@@ -267,6 +269,16 @@ class AVCleanerGUI(tk.Tk):
         self.clear_logs()
         self.set_status("Running…")
 
+        # Reset FFmpeg progress line counter for new process
+        reset_progress_counter()
+
+        # Show the fixed FFmpeg-style progress header above the scrolling console.
+        try:
+            main: MainPage = self._pages["main"]  # type: ignore[assignment]
+            main.show_progress_header()
+        except Exception:
+            pass
+
         cmd = [
             sys.executable,
             "main.py",
@@ -291,7 +303,17 @@ class AVCleanerGUI(tk.Tk):
                 )
                 assert self._proc.stdout is not None
                 for line in self._proc.stdout:
-                    self.append_log(line)
+                    # Format FFmpeg progress lines to align with header columns
+                    formatted_line, is_progress = format_ffmpeg_progress_line(line)
+                    
+                    if is_progress:
+                        # Only show every other progress line to reduce console spam
+                        if should_show_progress_line(show_every_nth=2):
+                            self.append_log(formatted_line)
+                    else:
+                        # Pass through non-progress lines as-is
+                        self.append_log(line)
+                        
                 code = self._proc.wait()
                 if code == 0:
                     self.set_status("Done")
