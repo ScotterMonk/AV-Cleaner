@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-
 import tkinter as tk
 from tkinter import messagebox
-
 from ui.gui_config_editor import ConfigEditor
 
 
@@ -308,16 +306,29 @@ class SettingsPage(tk.Frame):
     def _build_pipeline_form(self, parent: tk.Frame) -> None:
         app = self._app
         self._pipe_vars: dict[str, tk.BooleanVar] = {}
+        
+        # Encoder vars
+        self._enc_mode = tk.StringVar(value="cpu")
+        self._enc_quality = tk.StringVar(value="18")
 
         self._pipe_container = tk.Frame(parent, bg=app._palette["panel"])
         self._pipe_container.pack(fill="both", expand=True)
 
-    def _render_pipeline_toggles(self, pipe_cfg: dict) -> None:
+    def _render_pipeline_toggles(self, pipe_cfg: dict, qual_presets: dict) -> None:
         app = self._app
         for c in self._pipe_container.winfo_children():
             c.destroy()
 
         self._pipe_vars.clear()
+
+        # Load encoding settings (assuming generic 'PODCAST_HIGH_QUALITY' preset)
+        preset = qual_presets.get("PODCAST_HIGH_QUALITY", {})
+        cuda_enabled = bool(preset.get("cuda_encode_enabled", False))
+        self._enc_mode.set("gpu" if cuda_enabled else "cpu")
+        
+        # Default quality display (CRF as master, or fallback to NVENC CQ)
+        start_q = preset.get("crf", 23)
+        self._enc_quality.set(str(start_q))
 
         def mk_section(title: str) -> tk.Frame:
             tk.Label(
@@ -356,26 +367,87 @@ class SettingsPage(tk.Frame):
             t = str(p.get("type"))
             mk_toggle(proc_sec, f"processors:{i}", t, bool(p.get("enabled")))
 
+        # --- Encoding Section ---
+        enc_sec = mk_section("VIDEO ENCODING")
+        
+        # Encoder Selection
+        lbl_enc = tk.Label(enc_sec, text="Encoder", font=app._mono(weight="bold"), bg=app._palette["panel"], fg=app._palette["text"])
+        lbl_enc.pack(anchor="w")
+        
+        row_enc = tk.Frame(enc_sec, bg=app._palette["panel"])
+        row_enc.pack(fill="x", pady=(2, 8))
+        
+        def mk_radio(val: str, label: str):
+            r = tk.Radiobutton(
+                row_enc,
+                text=label,
+                variable=self._enc_mode,
+                value=val,
+                font=app._mono(),
+                bg=app._palette["panel"],
+                fg=app._palette["text"],
+                selectcolor=app._palette["panel2"],
+                activebackground=app._palette["panel"],
+                activeforeground=app._palette["text"],
+                highlightthickness=0,
+                bd=0
+            )
+            r.pack(side="left", padx=(0, 10))
+            
+        mk_radio("cpu", "CPU (libx264)")
+        mk_radio("gpu", "NVIDIA GPU (NVENC)")
+
+        # Quality
+        lbl_qual = tk.Label(enc_sec, text="Quality (0-51, Lower is Better)", font=app._mono(weight="bold"), bg=app._palette["panel"], fg=app._palette["text"])
+        lbl_qual.pack(anchor="w")
+        
+        row_qual = tk.Frame(enc_sec, bg=app._palette["panel"])
+        row_qual.pack(fill="x", pady=(2, 0))
+        
+        ent_qual = tk.Entry(
+            row_qual,
+            textvariable=self._enc_quality,
+            font=app._mono(),
+            bg=app._palette["panel2"],
+            fg=app._palette["text"],
+            insertbackground=app._ui_colors["accent_line"],
+            relief="flat",
+            highlightthickness=2,
+            highlightbackground=app._palette["edge2"],
+            highlightcolor=app._ui_colors["accent_line"],
+            width=6
+        )
+        ent_qual.pack(side="left")
+        
+        tk.Label(
+            row_qual,
+            text="Rec: 16-18 (High), 0 (Lossless)",
+            font=app._mono(),
+            bg=app._palette["panel"],
+            fg=app._palette["muted"]
+        ).pack(side="left", padx=10)
+
+
         note = tk.Label(
             self._pipe_container,
-            text="Toggles write back to PIPELINE_CONFIG['processors'] in config.py.\nDetectors run automatically as needed.",
+            text="Settings save to QUALITY_PRESETS & PIPELINE_CONFIG in config.py.\nRestart GUI to apply full pipeline changes.",
             font=app._mono(),
             bg=app._palette["panel"],
             fg=app._palette["muted"],
             justify="left",
         )
-        note.pack(anchor="w")
+        note.pack(anchor="w", pady=(14, 0))
 
     def _reload(self) -> None:
         try:
-            gui_dict, pipe_cfg = ConfigEditor.load_gui_and_pipeline(self._config_path)
+            gui_dict, pipe_cfg, qual_presets = ConfigEditor.load_gui_and_pipeline(self._config_path)
         except Exception as e:
             messagebox.showerror("Config load failed", str(e))
             return
 
         for k, v in self._vars.items():
             v.set(str(gui_dict.get(k, "")))
-        self._render_pipeline_toggles(pipe_cfg)
+        self._render_pipeline_toggles(pipe_cfg, qual_presets)
         self._app.set_status("Settings loaded")
 
     def _save(self) -> None:
@@ -383,7 +455,10 @@ class SettingsPage(tk.Frame):
             raw = self._vars[key].get().strip()
             if raw == "":
                 raise ValueError(f"{key} is required")
-            return int(raw)
+            try:
+                return int(raw)
+            except ValueError:
+                raise ValueError(f"{key} must be an integer")
 
         def to_color(key: str) -> str:
             raw = self._vars[key].get().strip()
@@ -407,17 +482,34 @@ class SettingsPage(tk.Frame):
                 "ui_accent_line_color": to_color("ui_accent_line_color"),
             }
 
-            _, pipe_cfg = ConfigEditor.load_gui_and_pipeline(self._config_path)
+            _, pipe_cfg, qual_presets = ConfigEditor.load_gui_and_pipeline(self._config_path)
+            
+            # Update Pipeline Config
             for k, var in self._pipe_vars.items():
                 group, idx_s = k.split(":", 1)
                 idx = int(idx_s)
                 pipe_cfg[group][idx]["enabled"] = bool(var.get())
-
-            # Back-compat / hardening: detectors are no longer user-facing.
-            # If an older config.py still has PIPELINE_CONFIG['detectors'], drop it when saving.
             pipe_cfg.pop("detectors", None)
+            
+            # Update Quality Presets (Encode Settings)
+            preset = qual_presets.get("PODCAST_HIGH_QUALITY")
+            if not preset:
+                # Should not happen typically
+                raise ValueError("PODCAST_HIGH_QUALITY preset missing in config.py")
+            
+            is_gpu = (self._enc_mode.get() == "gpu")
+            qual_val = int(self._enc_quality.get().strip())
+            
+            preset["cuda_encode_enabled"] = is_gpu
+            preset["crf"] = qual_val
+            
+            # Ensure nvenc block exists
+            if "nvenc" not in preset or not isinstance(preset["nvenc"], dict):
+                preset["nvenc"] = {"codec": "h264_nvenc", "preset": "p4", "rc": "vbr"}
+            
+            preset["nvenc"]["cq"] = qual_val
 
-            ConfigEditor.write_gui_and_pipeline(self._config_path, gui_update, pipe_cfg)
+            ConfigEditor.write_gui_and_pipeline(self._config_path, gui_update, pipe_cfg, qual_presets)
         except Exception as e:
             messagebox.showerror("Save failed", str(e))
             return
