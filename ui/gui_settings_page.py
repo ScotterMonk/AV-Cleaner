@@ -118,12 +118,66 @@ class SettingsPage(tk.Frame):
         app = self._app
         self._pipe_vars: dict[str, tk.BooleanVar] = {}
 
+        # Quality preset vars (PODCAST_HIGH_QUALITY)
+        self._qual_vars: dict[str, tk.StringVar] = {
+            "silence_threshold_db": tk.StringVar(value="-45"),
+            "min_pause_duration": tk.StringVar(value="2"),
+            "silence_window_ms": tk.StringVar(value="100"),
+            "spike_threshold_db": tk.StringVar(value="-5"),
+            "normalization_standard_target": tk.StringVar(value="-16.0"),
+            "normalization_max_gain_db": tk.StringVar(value="15.0"),
+        }
+        self._norm_mode = tk.StringVar(value="MATCH_HOST")
+
         # Encoder vars
         self._enc_mode = tk.StringVar(value="cpu")
         self._enc_quality = tk.StringVar(value="18")
 
-        self._pipe_container = tk.Frame(parent, bg=app._palette["panel"])
-        self._pipe_container.pack(fill="both", expand=True)
+        # Scrollable container for pipeline pane
+        outer = tk.Frame(parent, bg=app._palette["panel"])
+        outer.pack(fill="both", expand=True)
+
+        self._pipe_canvas = tk.Canvas(
+            outer,
+            bg=app._palette["panel"],
+            highlightthickness=0,
+            bd=0,
+            relief="flat",
+        )
+        self._pipe_scroll = tk.Scrollbar(outer, orient="vertical", command=self._pipe_canvas.yview)
+        self._pipe_canvas.configure(yscrollcommand=self._pipe_scroll.set)
+
+        self._pipe_scroll.pack(side="right", fill="y")
+        self._pipe_canvas.pack(side="left", fill="both", expand=True)
+
+        self._pipe_container = tk.Frame(self._pipe_canvas, bg=app._palette["panel"])
+        self._pipe_window = self._pipe_canvas.create_window((0, 0), window=self._pipe_container, anchor="nw")
+
+        def _on_container_configure(_evt=None):
+            self._pipe_canvas.configure(scrollregion=self._pipe_canvas.bbox("all"))
+
+        def _on_canvas_configure(_evt=None):
+            # Keep inner frame width in sync with canvas width.
+            self._pipe_canvas.itemconfigure(self._pipe_window, width=self._pipe_canvas.winfo_width())
+
+        self._pipe_container.bind("<Configure>", _on_container_configure)
+        self._pipe_canvas.bind("<Configure>", _on_canvas_configure)
+
+        # Mousewheel scrolling (Windows/macOS)
+        def _on_mousewheel(evt):
+            # On Windows, evt.delta is typically multiples of 120
+            delta = int(-1 * (evt.delta / 120)) if getattr(evt, "delta", 0) else 0
+            if delta:
+                self._pipe_canvas.yview_scroll(delta, "units")
+
+        def _bind_mousewheel(_evt=None):
+            self._pipe_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _unbind_mousewheel(_evt=None):
+            self._pipe_canvas.unbind_all("<MouseWheel>")
+
+        self._pipe_canvas.bind("<Enter>", _bind_mousewheel)
+        self._pipe_canvas.bind("<Leave>", _unbind_mousewheel)
 
     def _render_pipeline_toggles(self, pipe_cfg: dict, qual_presets: dict) -> None:
         app = self._app
@@ -134,6 +188,20 @@ class SettingsPage(tk.Frame):
 
         # Load encoding settings (assuming generic 'PODCAST_HIGH_QUALITY' preset)
         preset = qual_presets.get("PODCAST_HIGH_QUALITY", {})
+
+        # Load quality-preset settings
+        self._qual_vars["silence_threshold_db"].set(str(preset.get("silence_threshold_db", -45)))
+        self._qual_vars["min_pause_duration"].set(str(preset.get("min_pause_duration", 2)))
+        self._qual_vars["silence_window_ms"].set(str(preset.get("silence_window_ms", 100)))
+        self._qual_vars["spike_threshold_db"].set(str(preset.get("spike_threshold_db", -5)))
+
+        norm = preset.get("normalization")
+        if not isinstance(norm, dict):
+            norm = {}
+        self._norm_mode.set(str(norm.get("mode", "MATCH_HOST")))
+        self._qual_vars["normalization_standard_target"].set(str(norm.get("standard_target", -16.0)))
+        self._qual_vars["normalization_max_gain_db"].set(str(norm.get("max_gain_db", 15.0)))
+
         cuda_enabled = bool(preset.get("cuda_encode_enabled", False))
         self._enc_mode.set("gpu" if cuda_enabled else "cpu")
 
@@ -172,6 +240,73 @@ class SettingsPage(tk.Frame):
                 bd=0,
             )
             chk.pack(side="left")
+
+        def mk_kv_row(sec: tk.Frame, label: str, var: tk.StringVar, width: int = 10) -> None:
+            row = tk.Frame(sec, bg=app._palette["panel"])
+            row.pack(fill="x", pady=4)
+            tk.Label(
+                row,
+                text=label,
+                font=app._mono(weight="bold"),
+                bg=app._palette["panel"],
+                fg=app._palette["text"],
+            ).pack(side="left")
+            ent = tk.Entry(
+                row,
+                textvariable=var,
+                font=app._mono(),
+                bg=app._palette["panel2"],
+                fg=app._palette["text"],
+                insertbackground=app._ui_colors["accent_line"],
+                relief="flat",
+                highlightthickness=2,
+                highlightbackground=app._palette["edge2"],
+                highlightcolor=app._ui_colors["accent_line"],
+                width=width,
+            )
+            # Add a small right padding so inputs don't visually touch the scrollbar.
+            ent.pack(side="right", padx=(0, 5))
+
+        # --- Quality Presets Section ---
+        qual_sec = mk_section("QUALITY PRESETS")
+        mk_kv_row(qual_sec, "Silence threshold (dB)", self._qual_vars["silence_threshold_db"], width=10)
+        mk_kv_row(qual_sec, "Min pause duration (sec)", self._qual_vars["min_pause_duration"], width=10)
+        mk_kv_row(qual_sec, "Silence window (ms)", self._qual_vars["silence_window_ms"], width=10)
+        mk_kv_row(qual_sec, "Spike threshold (dB)", self._qual_vars["spike_threshold_db"], width=10)
+
+        tk.Label(
+            qual_sec,
+            text="Normalization mode",
+            font=app._mono(weight="bold"),
+            bg=app._palette["panel"],
+            fg=app._palette["text"],
+        ).pack(anchor="w", pady=(6, 0))
+
+        row_norm = tk.Frame(qual_sec, bg=app._palette["panel"])
+        row_norm.pack(fill="x", pady=(2, 8))
+
+        def mk_norm_radio(val: str, label: str) -> None:
+            r = tk.Radiobutton(
+                row_norm,
+                text=label,
+                variable=self._norm_mode,
+                value=val,
+                font=app._mono(),
+                bg=app._palette["panel"],
+                fg=app._palette["text"],
+                selectcolor=app._palette["panel2"],
+                activebackground=app._palette["panel"],
+                activeforeground=app._palette["text"],
+                highlightthickness=0,
+                bd=0,
+            )
+            r.pack(side="left", padx=(0, 10))
+
+        mk_norm_radio("MATCH_HOST", "Match host")
+        mk_norm_radio("STANDARD_LUFS", "Standard LUFS")
+
+        mk_kv_row(qual_sec, "Standard target (LUFS)", self._qual_vars["normalization_standard_target"], width=10)
+        mk_kv_row(qual_sec, "Max gain (dB)", self._qual_vars["normalization_max_gain_db"], width=10)
 
         proc_sec = mk_section("PROCESSORS")
         for i, p in enumerate(pipe_cfg.get("processors", [])):
@@ -318,6 +453,42 @@ class SettingsPage(tk.Frame):
             if not preset:
                 # Should not happen typically
                 raise ValueError("PODCAST_HIGH_QUALITY preset missing in config.py")
+
+            def to_int_s(var: tk.StringVar, label: str) -> int:
+                raw = var.get().strip()
+                if raw == "":
+                    raise ValueError(f"{label} is required")
+                try:
+                    return int(raw)
+                except ValueError:
+                    raise ValueError(f"{label} must be an integer")
+
+            def to_float_s(var: tk.StringVar, label: str) -> float:
+                raw = var.get().strip()
+                if raw == "":
+                    raise ValueError(f"{label} is required")
+                try:
+                    return float(raw)
+                except ValueError:
+                    raise ValueError(f"{label} must be a number")
+
+            # Update Quality Preset (analysis + normalization)
+            preset["silence_threshold_db"] = to_int_s(
+                self._qual_vars["silence_threshold_db"], "Silence threshold (dB)"
+            )
+            preset["min_pause_duration"] = to_float_s(
+                self._qual_vars["min_pause_duration"], "Min pause duration (sec)"
+            )
+            preset["silence_window_ms"] = to_int_s(self._qual_vars["silence_window_ms"], "Silence window (ms)")
+            preset["spike_threshold_db"] = to_int_s(self._qual_vars["spike_threshold_db"], "Spike threshold (dB)")
+
+            preset["normalization"] = {
+                "mode": self._norm_mode.get().strip() or "MATCH_HOST",
+                "standard_target": to_float_s(
+                    self._qual_vars["normalization_standard_target"], "Standard target (LUFS)"
+                ),
+                "max_gain_db": to_float_s(self._qual_vars["normalization_max_gain_db"], "Max gain (dB)"),
+            }
 
             is_gpu = self._enc_mode.get() == "gpu"
             qual_val = int(self._enc_quality.get().strip())

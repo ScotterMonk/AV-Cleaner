@@ -61,12 +61,23 @@ class MainPage(tk.Frame):
         files_panel.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 14))
         self._build_files(files_panel.body)
 
-        # Actions (full width)
-        # --------------------
-        # Primary processing controls. This panel uses two horizontal button rows.
-        actions_panel = app._make_panel(grid, "Actions")
-        actions_panel.grid(row=1, column=0, sticky="nsew", padx=0, pady=(0, 14))
+        # Actions & Controls (Row 1)
+        # --------------------------
+        # Split into two columns:
+        # - Left: Actions panel (50%)
+        # - Right: Controls panel (50%)
+        row1 = tk.Frame(grid, bg=app._palette["bg"])
+        row1.grid(row=1, column=0, sticky="nsew", padx=0, pady=(0, 14))
+        row1.grid_columnconfigure(0, weight=1)
+        row1.grid_columnconfigure(1, weight=1)
+
+        actions_panel = app._make_panel(row1, "Actions")
+        actions_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
         self._build_actions(actions_panel.body)
+
+        controls_panel = app._make_panel(row1, "Controls")
+        controls_panel.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        self._build_controls(controls_panel.body)
 
         # Logs
         # ----
@@ -117,6 +128,20 @@ class MainPage(tk.Frame):
         # are picking (host vs guest).
         btn_text = "BROWSE HOST" if role == "host" else "BROWSE GUEST"
         app._create_file_row(parent, row_index=row_index, role=role, button_text=btn_text)
+
+    def _build_controls(self, parent: tk.Frame) -> None:
+        # Modified by gpt-5.2 | 2026-01-12_02
+        app = self._app
+
+        # Center the buttons
+        container = tk.Frame(parent, bg=app._palette["panel"])
+        container.pack(expand=True)
+
+        # VCR-like buttons: Play, Pause, Stop
+        # Using unicode symbols
+        app._make_btn(container, "▶", lambda: None, kind="primary").pack(side="left", padx=6)
+        app._make_btn(container, "‖", lambda: None, kind="secondary").pack(side="left", padx=6)
+        app._make_btn(container, "⏹", lambda: None, kind="secondary").pack(side="left", padx=6)
 
     def _build_actions(self, parent: tk.Frame) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
