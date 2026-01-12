@@ -18,10 +18,14 @@ Deeper:
 3) Override normalization mode: `python main.py --host ... --guest ... --norm-mode MATCH_HOST|STANDARD_LUFS`
 
 ## Environment & Shell
-**Base folder**: "d:\Dropbox\Projects\AV-cleaner\app\"
+**Base folder**: "d:\Dropbox\Projects\AV-cleaner\app\". Convert between "\" and "/" as necessary.
 **Prefer PowerShell**: This project is developed on Windows. Agents should assume a PowerShell environment (`pwsh`) for terminal commands.
 **Avoid cmd.exe pitfalls**: Be aware that `cmd.exe` does not treat `;` as a command separator (use `&` or `&&` instead). If a command fails with "shell is treating ; as an argument", it likely ran in `cmd.exe`.
 **VS Code Settings**: The workspace is configured to default to PowerShell (`.vscode/settings.json`).
+
+## Tooling Preference (Web)
+Primary: browser_action (ALWAYS try this first).
+Fallback: Other browser tools (Only if browser_action fails).
 
 ## Project-specific gotchas
 - `ProcessingPipeline.execute()` always extracts audio to a temp stereo 44.1kHz WAV, then loads it fully into RAM via pydub; long videos can require hundreds of MB (`io/audio_extractor.py`).
