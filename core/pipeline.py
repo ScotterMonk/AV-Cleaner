@@ -6,6 +6,8 @@ from io_ import video_renderer
 from utils.path_helpers import make_processed_output_path
 from utils.logger import get_logger
 
+from pathlib import Path
+
 logger = get_logger(__name__)
 
 class ProcessingPipeline:
@@ -62,5 +64,19 @@ class ProcessingPipeline:
             host_out, guest_out, 
             self.config
         )
+
+        # Pause-removal summary + optional log file.
+        if getattr(manifest, "pause_removal_applied", False):
+            from utils.pause_removal_log import pause_removal_log_write
+
+            removed_count = len(getattr(manifest, "pause_removals", []) or [])
+            logger.info(f"{removed_count} pauses removed")
+
+            # Only save a log file when at least one pause was removed.
+            if removed_count > 0:
+                project_dir = Path(host_video_path).resolve().parent
+                log_path = pause_removal_log_write(project_dir, manifest.pause_removals)
+                if log_path:
+                    logger.info(f"Pause removal log saved: {log_path}")
         
         return host_out, guest_out
