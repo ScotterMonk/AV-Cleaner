@@ -11,6 +11,7 @@ import click
 from core.pipeline import ProcessingPipeline
 from detectors.cross_talk_detector import CrossTalkDetector
 from detectors.spike_fixer_detector import SpikeFixerDetector
+from io_.media_preflight import normalize_video_lengths
 from processors.spike_fixer import SpikeFixer
 from processors.audio_normalizer import AudioNormalizer
 from processors.segment_remover import SegmentRemover
@@ -102,7 +103,10 @@ def main(host, guest, action, norm_mode):
     Video Automation Tool: Sync-safe cleaning and normalization.
     """
     logger = setup_logger()
-    
+
+    # Preflight: ensure host+guest durations are aligned for all actions (even guest-only).
+    host, guest = normalize_video_lengths(host, guest)
+     
     # Load Config
     config = QUALITY_PRESETS['PODCAST_HIGH_QUALITY'].copy()
     if norm_mode:
@@ -110,13 +114,12 @@ def main(host, guest, action, norm_mode):
 
     # Init Pipeline
     pipeline = _build_pipeline(config, action)
-
+ 
     # Run
     try:
-        if action == "NORMALIZE_GUEST_AUDIO":
-            h_out, g_out = pipeline.execute(host, guest, render_host=False, render_guest=True)
-        else:
-            h_out, g_out = pipeline.execute(host, guest)
+        # Always render both host+guest outputs so the GUI/CLI can reliably switch to
+        # a stable processed pair after any action (even guest-only workflows).
+        h_out, g_out = pipeline.execute(host, guest)
 
         created = [p for p in [h_out, g_out] if p]
         logger.info("Success! Files created:\n" + "\n".join(created))

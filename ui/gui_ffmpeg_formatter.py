@@ -31,7 +31,7 @@ def get_header_line() -> str:
         f"{_format_cell('FPS', 7)}"  # FPS
         f"{_format_cell('Qual', 8)}"  # Qual (Q)
         f"{_format_cell('Size', 10)}"  # Size
-        f"{_format_cell('Time', 10)}"  # Time
+        f"{_format_cell('Progress', 10)}"  # Time
         f" "
         f"{_format_cell('Bitrate', 18)}"  # Bitrate
         f"{_format_cell('Speed', 8)}"  # Speed
@@ -136,8 +136,9 @@ def format_ffmpeg_progress_line(line: str, show_every_nth: int = 2) -> tuple[str
         f" "
         f"{_format_cell(values.get('time', ''), 10)}"  # Time
         f"{_format_cell(values.get('bitrate', ''), 18)}"  # Bitrate
-        f" "
-        f"{_format_cell(values.get('speed', ''), 8)}"  # Speed
+        f"  "
+        f"  "
+        f"{_format_cell(values.get('speed', ''), 10)}"  # Speed
         f"{_format_cell(elapsed, 10)}"  # Elapsed
     )
     

@@ -261,6 +261,7 @@ class AVCleanerGUI(tk.Tk):
             pass
         self.after(60, self._poll_log_queue)
 
+    # Modified by gpt-5.2 | 2026-01-13_01
     def run_processing(self, host_path: str, guest_path: str, *, action: str = "ALL") -> None:
         if self._proc and self._proc.poll() is None:
             messagebox.showwarning("Already running", "A job is already running.")
@@ -316,6 +317,14 @@ class AVCleanerGUI(tk.Tk):
                         
                 code = self._proc.wait()
                 if code == 0:
+                    host_processed = make_processed_output_path(host_path)
+                    guest_processed = make_processed_output_path(guest_path)
+
+                    if os.path.exists(host_processed):
+                        self.after(0, self._set_row_for_path, "host", host_processed)
+                    if os.path.exists(guest_processed):
+                        self.after(0, self._set_row_for_path, "guest", guest_processed)
+
                     self.set_status("Done")
                 else:
                     self.set_status(f"Failed (exit {code})")

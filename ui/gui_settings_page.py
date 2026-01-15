@@ -121,7 +121,7 @@ class SettingsPage(tk.Frame):
         # Quality preset vars (PODCAST_HIGH_QUALITY)
         self._qual_vars: dict[str, tk.StringVar] = {
             "silence_threshold_db": tk.StringVar(value="-45"),
-            "min_pause_duration": tk.StringVar(value="2"),
+            "max_pause_duration": tk.StringVar(value="2"),
             "silence_window_ms": tk.StringVar(value="100"),
             "spike_threshold_db": tk.StringVar(value="-5"),
             "normalization_standard_target": tk.StringVar(value="-16.0"),
@@ -191,7 +191,7 @@ class SettingsPage(tk.Frame):
 
         # Load quality-preset settings
         self._qual_vars["silence_threshold_db"].set(str(preset.get("silence_threshold_db", -45)))
-        self._qual_vars["min_pause_duration"].set(str(preset.get("min_pause_duration", 2)))
+        self._qual_vars["max_pause_duration"].set(str(preset.get("max_pause_duration", 2)))
         self._qual_vars["silence_window_ms"].set(str(preset.get("silence_window_ms", 100)))
         self._qual_vars["spike_threshold_db"].set(str(preset.get("spike_threshold_db", -5)))
 
@@ -270,7 +270,7 @@ class SettingsPage(tk.Frame):
         # --- Quality Presets Section ---
         qual_sec = mk_section("QUALITY PRESETS")
         mk_kv_row(qual_sec, "Silence threshold (dB)", self._qual_vars["silence_threshold_db"], width=10)
-        mk_kv_row(qual_sec, "Min pause duration (sec)", self._qual_vars["min_pause_duration"], width=10)
+        mk_kv_row(qual_sec, "Max pause duration (sec)", self._qual_vars["max_pause_duration"], width=10)
         mk_kv_row(qual_sec, "Silence window (ms)", self._qual_vars["silence_window_ms"], width=10)
         mk_kv_row(qual_sec, "Spike threshold (dB)", self._qual_vars["spike_threshold_db"], width=10)
 
@@ -476,8 +476,8 @@ class SettingsPage(tk.Frame):
             preset["silence_threshold_db"] = to_int_s(
                 self._qual_vars["silence_threshold_db"], "Silence threshold (dB)"
             )
-            preset["min_pause_duration"] = to_float_s(
-                self._qual_vars["min_pause_duration"], "Min pause duration (sec)"
+            preset["max_pause_duration"] = to_float_s(
+                self._qual_vars["max_pause_duration"], "Max pause duration (sec)"
             )
             preset["silence_window_ms"] = to_int_s(self._qual_vars["silence_window_ms"], "Silence window (ms)")
             preset["spike_threshold_db"] = to_int_s(self._qual_vars["spike_threshold_db"], "Spike threshold (dB)")

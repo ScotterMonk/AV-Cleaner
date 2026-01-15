@@ -2,13 +2,60 @@
 
 import ffmpeg
 import functools
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
+from pathlib import Path
+from typing import Callable
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _path_norm_for_compare(p: str) -> str:
+    """Normalize a path for equality comparisons (works even if path doesn't exist)."""
+
+    return os.path.normcase(os.path.abspath(p))
+
+
+def _render_with_safe_overwrite(input_path: str, output_path: str, render: Callable[[str], None]) -> None:
+    """Render to `output_path`, safely handling the case where output==input.
+
+    If `output_path` resolves to the same location as `input_path`, we render to a
+    temp file *in the output directory* and then atomically replace the original.
+
+    This avoids reading and writing the same path in one FFmpeg invocation.
+    """
+
+    if _path_norm_for_compare(input_path) != _path_norm_for_compare(output_path):
+        render(output_path)
+        return
+
+    out_p = Path(output_path)
+    out_dir = out_p.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{out_p.stem}.tmp-",
+        suffix=out_p.suffix,
+        dir=str(out_dir),
+    )
+    os.close(fd)
+
+    try:
+        logger.info("Output path equals input path; rendering to temp then replacing: %s", tmp_path)
+        render(tmp_path)
+        os.replace(tmp_path, output_path)
+    except Exception:
+        # Ensure we don't leave a temp file behind on failure.
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        finally:
+            raise
 
 
 def build_cpu_enc_opts(config):
@@ -396,10 +443,16 @@ def render_project(host_path, guest_path, manifest, out_host, out_guest, config)
     # Note: Running sequentially is safer for memory, though parallel is possible
     if out_host:
         logger.info("Rendering Host Video...")
-        stream = ffmpeg.output(h_v, h_a, out_host, **enc_opts)
-        run_with_progress(stream, overwrite_output=True)
+        def _render_host(to_path: str) -> None:
+            stream = ffmpeg.output(h_v, h_a, to_path, **enc_opts)
+            run_with_progress(stream, overwrite_output=True)
+
+        _render_with_safe_overwrite(host_path, out_host, _render_host)
 
     if out_guest:
         logger.info("Rendering Guest Video...")
-        stream = ffmpeg.output(g_v, g_a, out_guest, **enc_opts)
-        run_with_progress(stream, overwrite_output=True)
+        def _render_guest(to_path: str) -> None:
+            stream = ffmpeg.output(g_v, g_a, to_path, **enc_opts)
+            run_with_progress(stream, overwrite_output=True)
+
+        _render_with_safe_overwrite(guest_path, out_guest, _render_guest)

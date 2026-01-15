@@ -30,6 +30,12 @@ def add_suffix_to_filename(input_path: str, suffix: str, *, output_ext: str | No
 def make_processed_output_path(input_video_path: str, *, output_ext: str = ".mp4") -> str:
     """Derive the default processed output path for an input video."""
 
+    # Prevent "_processed_processed" naming chains when a pipeline is re-run using a
+    # previously processed file as input.
+    p = Path(input_video_path)
+    if p.stem.endswith("_processed"):
+        return str(p)
+
     return add_suffix_to_filename(input_video_path, "_processed", output_ext=output_ext)
 
 

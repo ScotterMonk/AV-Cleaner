@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import tkinter as tk
 
-import ffmpeg
+from io_.media_probe import get_video_duration_seconds as _get_video_duration_seconds
 
 
 @dataclass
@@ -33,14 +33,14 @@ def format_bytes(num_bytes: int) -> str:
 
 
 def get_video_duration_seconds(video_path: str) -> float:
+    # Modified by gpt-5.2 | 2026-01-13_01
     """Return video duration in seconds using ffprobe via ffmpeg-python."""
 
-    probe = ffmpeg.probe(video_path)
-    duration_str = probe.get("format", {}).get("duration")
-    if not duration_str:
-        return 0.0
+    # Delegate to the shared, non-UI duration helper so CLI + GUI stay consistent.
+    # Keep the GUI API stable (callers expect this function name) and preserve
+    # the prior behavior of returning 0.0 on errors.
     try:
-        return float(duration_str)
-    except (TypeError, ValueError):
+        return float(_get_video_duration_seconds(video_path))
+    except Exception:
         return 0.0
 

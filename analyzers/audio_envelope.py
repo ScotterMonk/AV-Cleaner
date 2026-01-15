@@ -51,12 +51,16 @@ def calculate_db_envelope(audio: AudioSegment, window_ms: int = 100) -> np.ndarr
     rms_per_chunk = np.sqrt(np.mean(chunks**2, axis=1))
     
     # 6. Convert to dB
-    # Reference value for 16-bit audio is 32768
-    # We add a tiny epsilon (1e-9) to prevent log(0) errors on pure silence
-    ref_value = 32768.0
+    # IMPORTANT: The amplitude reference must match the sample width.
+    # - 16-bit PCM peak magnitude: 2^(16-1) = 32768
+    # - 32-bit PCM peak magnitude: 2^(32-1)
+    # If ref_value is too small, dB values are inflated and silence detection can fail.
+    # We add a tiny epsilon (1e-9) to prevent log(0) errors on pure silence.
+    sample_width = int(getattr(audio, "sample_width", 2) or 2)
+    ref_value = float(1 << (8 * sample_width - 1))
     
     # Suppress divide by zero warnings for the log calculation
     with np.errstate(divide='ignore'):
         db_values = 20 * np.log10(rms_per_chunk / ref_value + 1e-9)
-    
+     
     return db_values
