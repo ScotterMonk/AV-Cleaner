@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import time
+
 import ffmpeg
 
 from io_.media_probe import get_video_duration_seconds
@@ -106,6 +108,11 @@ def normalize_video_lengths(host_path: str, guest_path: str) -> tuple[str, str]:
 
     target = max(host_d, guest_d)
 
+    which_padded = "guest" if guest_d < host_d else "host"
+    logger.info(
+        f"[SUBFUNCTION START] Pad end of shorter video ({which_padded}) to fit longer video length"
+    )
+
     out_host = _safe_processed_output_path(host_path)
     out_guest = _safe_processed_output_path(guest_path)
 
@@ -126,6 +133,7 @@ def normalize_video_lengths(host_path: str, guest_path: str) -> tuple[str, str]:
         ),
     ]
 
+    preflight_start = time.time()
     logger.info(
         "Duration mismatch detected; normalizing lengths: host=%.3fs guest=%.3fs target=%.3fs",
         host_d,
@@ -142,6 +150,17 @@ def normalize_video_lengths(host_path: str, guest_path: str) -> tuple[str, str]:
             p.target_duration_s,
         )
         _video_pad_to_duration(p)
+
+    preflight_duration = time.time() - preflight_start
+    from utils.logger import format_duration, format_time_cut
+
+    logger.info(
+        f"[PREFLIGHT COMPLETE] Padded shorter video ({which_padded}) to fit longer video - Both videos modified to {format_time_cut(target)} duration - Completed in {format_duration(preflight_duration)}"
+    )
+
+    logger.info(
+        f"[SUBFUNCTION COMPLETE] Pad end of shorter video ({which_padded}) to fit longer video length"
+    )
 
     return out_host, out_guest
 

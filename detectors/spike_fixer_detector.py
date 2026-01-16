@@ -50,6 +50,10 @@ class SpikeFixerDetector(BaseDetector):
         # Merge adjacent spikes
         merged = self._merge_adjacent_regions(spike_regions, gap_threshold=0.1)
 
+        from utils.logger import get_logger
+        logger = get_logger(__name__)
+        logger.info(f"[DETECTOR] Found {len(merged)} audio spike regions in guest video")
+
         return merged
 
     # Created-or-Modified by gpt-5.2 | 2026-01-09_01

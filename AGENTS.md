@@ -2,93 +2,32 @@
 
 This file provides guidance to agents when working with code in this repository.
 
-## Application overview
-Automate "Cleaning" of synchronized dual-video recordings (host + guest). Features:
-- Finds average audio level (db) of both files. Normalizes avg audio levels of guest video to fit host video audio level.
-- Finds spikes above y db in guest video and reduce them to y.
-- Trims silent pauses.
-- With all changes, maintains perfect sync and audio quality.
-Deeper:
-- Built with a plugin-based architecture for easy extension (e.g., later features such as AI-based filler word removal).
-- All relevant settings in config file.
+## Commands (non-standard flags)
+- Run tests from project root: `pytest` (NOT from tests/ subdirectory; imports require root context)
+- Override normalization: `python main.py --host ... --guest ... --norm-mode MATCH_HOST|STANDARD_LUFS`
 
-## Commands
-1) Run GUI: `py app.py`
-2) Run CLI (Click): `python main.py --host path/to/host.mp4 --guest path/to/guest.mp4`
-3) Override normalization mode: `python main.py --host ... --guest ... --norm-mode MATCH_HOST|STANDARD_LUFS`
+## Shell & Environment (Windows-specific)
+- **Base folder**: `D:\Dropbox\Projects\AV-cleaner\app\`
+- **Prefer PowerShell** for commands; if `;` is treated as an argument, you likely ran in `cmd.exe` (use `&` or `&&` instead)
 
-## Environment & Shell
-**Base folder**: "d:\Dropbox\Projects\AV-cleaner\app\". Convert between "\" and "/" as necessary.
-**Prefer PowerShell**: This project is developed on Windows. Agents should assume a PowerShell environment (`pwsh`) for terminal commands.
-**Avoid cmd.exe pitfalls**: Be aware that `cmd.exe` does not treat `;` as a command separator (use `&` or `&&` instead). If a command fails with "shell is treating ; as an argument", it likely ran in `cmd.exe`.
-**VS Code Settings**: The workspace is configured to default to PowerShell (`.vscode/settings.json`).
+**Videos for testing**: `{base folder}\test_videos`
 
-## Tooling Preference (Web)
-Primary: browser_action (ALWAYS try this first).
-Fallback: Other browser tools (Only if browser_action fails).
+## Critical Non-Obvious Gotchas
+- **Sync**
+    - **Keep guest's video in sync with guest's audio**.
+    - **Keep host's video in sync with host's audio**.
+    - **Keep guest and host in sync with each other**: any removal of a pause in either video means you must modify both videos so they stay in sync.
+- **Audio extraction loads entire video into RAM** as stereo 44.1kHz WAV via pydub; long videos require hundreds of MB (`io_/audio_extractor.py`)
+- **All outputs are MP4** even when input is `.avi`, `.mkv`, etc. (`utils/path_helpers.py`, line 6)
+- **`make_processed_output_path()` prevents "_processed_processed" chains**; if input already ends in `_processed.ext`, returns input unchanged—BUT preserves original extension (doesn't force `.mp4`) (`utils/path_helpers.py:36`, `tests/test_output_paths.py:35`)
+- **Detectors are NEVER user-configurable**; they're auto-added based on enabled processors (`main.py:56-64`)
+- **Pipeline always renders BOTH outputs** (host + guest) even for guest-only workflows to maintain paired alignment (`main.py:121`)
+- **`normalize_video_lengths()` writes BOTH processed files** when duration mismatch detected, even if only one needs padding (`io_/media_preflight.py:99`)
+- **Rendering with output==input uses temp file + atomic replace**; otherwise FFmpeg would read/write same path (`io_/video_renderer.py:24`)
+- **GUI subprocess stdout/stderr are merged** (`io_/video_renderer.py:189`); FFmpeg progress throttled to 0.25s for GUI smoothness (`io_/video_renderer.py:206`)
+- **Frame-accurate cutting requires H.264/AAC**; changing codecs breaks non-keyframe cuts (`config.py`, `io_/video_renderer.py`)
+- **LUFS uses `pyloudnorm` if installed**; missing triggers RMS fallback with warning (`analyzers/audio_level_analyzer.py`)
 
-## Project-specific gotchas
-- `ProcessingPipeline.execute()` always extracts audio to a temp stereo 44.1kHz WAV, then loads it fully into RAM via pydub; long videos can require hundreds of MB (`io/audio_extractor.py`).
-- **Output filenames** are derived via `path.replace(".mp4", "_processed.mp4")`; non-`.mp4` inputs won’t produce correct output names (`core/pipeline.py`).
-- Frame-accurate cutting assumes H.264/AAC output (config comment: libx264/aac allows cutting at non-keyframes); keep config consistent when changing codecs (`config.py`, `io/video_renderer.py`).
-- LUFS uses `pyloudnorm` if installed; otherwise it falls back to pydub RMS and logs a warning (`analyzers/audio_level_analyzer.py`).
-
-## Architecture map (how edits are expressed)
-- Detectors produce results keyed by `detector.get_name()`; processors consume `detection_results` and build an `EditManifest` (no direct media mutation) (`core/pipeline.py`, `processors/base_processor.py`).
-- Rendering applies `EditManifest.host_filters`/`guest_filters` then trims BOTH audio and video using the SAME `keep_segments` to preserve sync (`io/video_renderer.py`, `core/interfaces.py`).
-- The CLI builds the pipeline from enabled processors, then auto-adds the required detectors (detectors are not user-configurable) (`main.py`, `config.py`).
-
-## Code style conventions observed in-repo
-- Module logging uses `logger = get_logger(__name__)`; the CLI should call `setup_logger()` once to configure handlers (`utils/logger.py`, `main.py`).
-
-## Folder/file structure
-```
-app/
-    app.py
-    main.py
-    config.py
-    AGENTS.md
-    activate.ps1
-    .gitignore
-    .roomodes
-    tests/
-        test_imports.py
-    core/
-        __init__.py
-        interfaces.py
-        pipeline.py
-    analyzers/
-        audio_envelope.py
-        audio_level_analyzer.py
-    detectors/
-        __init__.py
-        base_detector.py
-        cross_talk_detector.py
-        filler_word_detector.py
-        silence_detector.py
-        spike_fixer_detector.py
-    processors/
-        __init__.py
-        base_processor.py
-        audio_fader.py
-        spike_fixer.py
-        audio_normalizer.py
-        segment_remover.py
-    io_/
-        __init__.py
-        audio_extractor.py
-        video_renderer.py
-    utils/
-        logger.py
-        time_helpers.py
-    # build/diagnostic artifacts (generated)
-    ._gui_compile_output.txt
-    ._gui_import_output.txt
-    ._gui_run_output.txt
-    ._main_help.txt
-    ._pip_ffmpeg_show.txt
-    ._pip_install.txt
-    ._pyaudioop_install.txt
-    ._pyprocs.txt
-    ._venv_diag.txt
-```
+## Architecture (Edit Flow)
+- Detectors → results keyed by `detector.get_name()` → processors consume and build `EditManifest` (no media mutation) (`core/pipeline.py`, `processors/base_processor.py`)
+- Rendering applies `host_filters`/`guest_filters`, then trims video AND audio using SAME `keep_segments` to preserve sync (`io_/video_renderer.py`, `core/interfaces.py`)

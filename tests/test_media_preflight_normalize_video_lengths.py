@@ -21,6 +21,21 @@ def test_normalize_video_lengths_equal_returns_inputs(monkeypatch):
 def test_normalize_video_lengths_mismatch_writes_both_outputs(monkeypatch):
     from io_ import media_preflight
 
+    logged: list[str] = []
+
+    class _FakeLogger:
+        def info(self, msg, *args, **kwargs):
+            if args:
+                msg = msg % args
+            logged.append(str(msg))
+
+        def warning(self, msg, *args, **kwargs):
+            if args:
+                msg = msg % args
+            logged.append(str(msg))
+
+    monkeypatch.setattr(media_preflight, "logger", _FakeLogger())
+
     durations = {"host.mp4": 10.0, "guest.mp4": 8.0}
     monkeypatch.setattr(media_preflight, "get_video_duration_seconds", lambda p: durations[p])
 
@@ -42,6 +57,9 @@ def test_normalize_video_lengths_mismatch_writes_both_outputs(monkeypatch):
     assert by_in["host.mp4"].pad_seconds == 0.0
     assert by_in["guest.mp4"].target_duration_s == 10.0
     assert by_in["guest.mp4"].pad_seconds == 2.0
+
+    assert any("[PREFLIGHT COMPLETE]" in m for m in logged)
+    assert any("Both videos modified" in m for m in logged)
 
 
 def test__safe_processed_output_path_fallback_when_equal_to_input(monkeypatch):

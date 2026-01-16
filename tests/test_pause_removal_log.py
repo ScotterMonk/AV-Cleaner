@@ -1,5 +1,7 @@
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
+import logging
 
 from utils.pause_removal_log import pause_removal_log_line, pause_removal_log_write
 
@@ -22,4 +24,30 @@ def test_pause_removal_log_write_creates_file(tmp_path: Path) -> None:
     assert "pause rem-00:00:01-to-00:00:02" in text
     assert "pause rem-00:00:03-to-00:00:06" in text
     assert "2 pauses removed" in text
+
+
+def test_segment_remover_logs_completion_summary(caplog) -> None:
+    from core.interfaces import EditManifest
+    from processors.segment_remover import SegmentRemover
+
+    processor = SegmentRemover(config={})
+
+    # Duration is used only for keep-segment inversion.
+    host_audio = SimpleNamespace(duration_seconds=10.0)
+    guest_audio = object()
+
+    detection_results = {
+        "cross_talk_detector": [
+            (5.0, 7.0),
+            (1.0, 2.0),
+        ]
+    }
+
+    caplog.set_level(logging.INFO)
+    processor.process(EditManifest(), host_audio, guest_audio, detection_results)
+
+    assert (
+        "[PROCESSOR COMPLETE] Cut 2 pauses from both videos (sync-safe) - Total time cut: 00:03"
+        in caplog.text
+    )
 

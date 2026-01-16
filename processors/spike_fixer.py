@@ -7,6 +7,7 @@ It only updates the EditManifest with FFmpeg filter instructions.
 from __future__ import annotations
 
 from core.interfaces import EditManifest
+from utils.logger import get_logger
 
 from .base_processor import BaseProcessor
 
@@ -35,6 +36,11 @@ class SpikeFixer(BaseProcessor):
             limit=limit,
             attack=attack_ms,
             release=release_ms,
+        )
+
+        logger = get_logger(__name__)
+        logger.info(
+            f"[PROCESSOR] Applied limiter to {len(spike_regions)} spike regions in guest video - Settings: limit={limit:.3f}, attack={attack_ms}ms, release={release_ms}ms"
         )
         return manifest
 

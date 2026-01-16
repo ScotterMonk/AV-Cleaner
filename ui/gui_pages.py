@@ -45,8 +45,8 @@ class MainPage(tk.Frame):
 
         # Layout strategy:
         # - Row 0: Files panel (fixed height by content)
-        # - Row 1: Actions panel (fixed height by content)
-        # - Row 2: Console panel (takes remaining space)
+        # - Row 1: Actions/Controls row (fixed height by content)
+        # - Row 2: Console/Progress row (takes remaining space)
         grid.grid_rowconfigure(0, weight=0)
         grid.grid_rowconfigure(1, weight=0)
         grid.grid_rowconfigure(2, weight=1)
@@ -79,12 +79,24 @@ class MainPage(tk.Frame):
         controls_panel.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
         self._build_controls(controls_panel.body)
 
-        # Logs
-        # ----
-        # Console output pane. The app writes here while processing.
-        logs_panel = app._make_panel(grid, "Console")
-        logs_panel.grid(row=2, column=0, sticky="nsew")
-        self._build_logs(logs_panel.body)
+        # Console & Progress (Row 2)
+        # -------------------------
+        # Split into two columns:
+        # - Left: Console panel (50%)
+        # - Right: Progress panel (50%)
+        row2 = tk.Frame(grid, bg=app._palette["bg"])
+        row2.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
+        row2.grid_rowconfigure(0, weight=1)
+        row2.grid_columnconfigure(0, weight=1)
+        row2.grid_columnconfigure(1, weight=1)
+
+        console_panel = app._make_panel(row2, "Console")
+        console_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        self._build_logs(console_panel.body)
+
+        progress_panel = app._make_panel(row2, "Progress")
+        progress_panel.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        self._build_progress(progress_panel.body)
 
     def _build_files(self, parent: tk.Frame) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
@@ -178,75 +190,15 @@ class MainPage(tk.Frame):
     def _build_logs(self, parent: tk.Frame) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
         # Modified by Claude-4.5-Sonnet | 2026-01-08_11
+        # Modified by gpt-5.2 | 2026-01-15_01
         app = self._app
 
         # Outer wrapper adds an "edge" so the console reads as a distinct surface.
         wrap = tk.Frame(parent, bg=app._palette["panel"], highlightthickness=2, highlightbackground=app._palette["edge2"])
         wrap.pack(fill="both", expand=True)
 
-        # Progress header (hidden by default; shown when an Action starts)
-        self._progress_header = tk.Frame(
-            wrap,
-            bg=app._palette["panel2"],
-            height=20,
-        )
-        self._progress_header.pack_propagate(False)
-        # Pack then immediately hide so later we can show it in a stable position
-        # (above the log area) via pack(before=...).
-        self._progress_header.pack(side="top", fill="x")
-        self._progress_header.pack_forget()
-
-        # Use a Text widget for the header so it uses the exact same character-based
-        # formatting as the data lines (ensures perfect alignment)
-        from ui.gui_ffmpeg_formatter import get_header_line
-
-        # Header is a one-line, read-only Text widget so it shares:
-        # - font metrics (monospace)
-        # - padding
-        # - character alignment
-        # with the scrolling log below (which prints ffmpeg-like columns).
-        self._header_text = tk.Text(
-            self._progress_header,
-            bg=app._palette["panel2"],
-            fg=app._palette["muted"],
-            font=app._mono(),
-            relief="flat",
-            bd=0,
-            # Text widget *internal* padding (inside the Text widget border).
-            # This shifts the insertion point for all rendered text, adding 10px
-            # on the left AND right edges of the header line.
-            # Keeping it equal to the log Text's padx makes header columns start
-            # at the same x-position as the data lines below.
-            padx=0,
-            pady=0,  # Remove vertical padding to keep it slim
-            height=1,
-            wrap="none",
-            cursor="arrow",
-        )
-        self._header_text.pack(side="left", fill="both", expand=True)
-
-        # Insert header line with same formatting as data
-        self._header_text.insert("1.0", get_header_line())
-        self._header_text.configure(state="disabled")  # Make it read-only
-
-        # Use an actual Scrollbar (styled invisibly) instead of a Frame spacer.
-        header_scrollbar = tk.Scrollbar(
-            self._progress_header,
-            bg=app._palette["panel2"],           # Match header background (invisible)
-            troughcolor=app._palette["panel2"],  # Match header background (invisible)
-            activebackground=app._palette["panel2"],  # Match header background (invisible)
-            highlightthickness=0,
-            relief="flat",
-            bd=0,
-            width=12,  # Same width as data scrollbar
-        )
-        header_scrollbar.pack(side="right", fill="y")
-
-        # Log area (scrolling pane). Moved down to create separation under the header.
-        # Note: when the header is hidden, the extra top padding keeps the console
-        # from feeling cramped against the panel border.
         self._log_area = tk.Frame(wrap, bg=app._palette["panel"])
-        self._log_area.pack(side="top", fill="both", expand=True, pady=(15, 0))
+        self._log_area.pack(side="top", fill="both", expand=True)
 
         # Scrollbar for log text (comprehensive gray styling for Windows)
         scrollbar = tk.Scrollbar(
@@ -269,9 +221,6 @@ class MainPage(tk.Frame):
             font=app._mono(),
             relief="flat",
             bd=0,
-            # Text widget *internal* padding (inside the Text widget border).
-            # This adds 10px on the left AND right edges before/after text.
-            # Matching the header's padx keeps header + data column alignment.
             padx=16,
             pady=10,
             wrap="word",
@@ -285,17 +234,102 @@ class MainPage(tk.Frame):
         self._log_text.insert("end", "AV Cleaner console. Output from running main.py will appear here.\n")
         self._log_text.configure(state="disabled")
 
+    def _build_progress(self, parent: tk.Frame) -> None:
+        # Created by gpt-5.2 | 2026-01-15_01
+        app = self._app
+
+        # Outer wrapper adds an "edge" so the progress reads as a distinct surface.
+        wrap = tk.Frame(parent, bg=app._palette["panel"], highlightthickness=2, highlightbackground=app._palette["edge2"])
+        wrap.pack(fill="both", expand=True)
+
+        # Progress header (hidden by default; shown when an Action starts)
+        self._progress_header = tk.Frame(
+            wrap,
+            bg=app._palette["panel2"],
+            height=20,
+        )
+        self._progress_header.pack_propagate(False)
+        self._progress_header.pack(side="top", fill="x")
+        self._progress_header.pack_forget()
+
+        from ui.gui_ffmpeg_formatter import get_header_line
+
+        self._header_text = tk.Text(
+            self._progress_header,
+            bg=app._palette["panel2"],
+            fg=app._palette["muted"],
+            font=app._mono(),
+            relief="flat",
+            bd=0,
+            padx=0,
+            pady=0,
+            height=1,
+            wrap="none",
+            cursor="arrow",
+        )
+        self._header_text.pack(side="left", fill="both", expand=True)
+        self._header_text.insert("1.0", get_header_line())
+        self._header_text.configure(state="disabled")
+
+        # Invisible scrollbar spacer so header matches the body scrollbar width.
+        header_scrollbar = tk.Scrollbar(
+            self._progress_header,
+            bg=app._palette["panel2"],
+            troughcolor=app._palette["panel2"],
+            activebackground=app._palette["panel2"],
+            highlightthickness=0,
+            relief="flat",
+            bd=0,
+            width=12,
+        )
+        header_scrollbar.pack(side="right", fill="y")
+
+        # Progress area (scrolling pane).
+        self._progress_area = tk.Frame(wrap, bg=app._palette["panel"])
+        self._progress_area.pack(side="top", fill="both", expand=True, pady=(15, 0))
+
+        scrollbar = tk.Scrollbar(
+            self._progress_area,
+            bg="#555555",
+            troughcolor="#2A2A2A",
+            activebackground="#777777",
+            highlightthickness=0,
+            relief="flat",
+            bd=0,
+            width=12,
+        )
+        scrollbar.pack(side="right", fill="y")
+
+        self._progress_text = tk.Text(
+            self._progress_area,
+            bg=app._palette["panel2"],
+            fg=app._palette["text"],
+            insertbackground=app._ui_colors["accent_line"],
+            font=app._mono(),
+            relief="flat",
+            bd=0,
+            padx=16,
+            pady=10,
+            wrap="none",
+            yscrollcommand=scrollbar.set,
+        )
+        self._progress_text.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=self._progress_text.yview)
+
+        self._progress_text.insert("end", "Progress output will appear here.\n")
+        self._progress_text.configure(state="disabled")
+
     def show_progress_header(self) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
         """Show the fixed header row above the scrolling console."""
 
-        if not hasattr(self, "_progress_header") or not hasattr(self, "_log_area"):
+        if not hasattr(self, "_progress_header") or not hasattr(self, "_progress_area"):
             return
 
         # Ensure it appears above the scrolling pane.
         # pack(before=...) keeps the header in a stable position even if other
         # widgets are re-packed later.
-        self._progress_header.pack(side="top", fill="x", before=self._log_area)
+        self._progress_header.pack(side="top", fill="x", before=self._progress_area)
 
     def hide_progress_header(self) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
@@ -316,6 +350,12 @@ class MainPage(tk.Frame):
         self._log_text.delete("1.0", "end")
         self._log_text.configure(state="disabled")
 
+    def clear_progress_view(self) -> None:
+        # Created by gpt-5.2 | 2026-01-15_01
+        self._progress_text.configure(state="normal")
+        self._progress_text.delete("1.0", "end")
+        self._progress_text.configure(state="disabled")
+
     def append_log_view(self, text: str) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
         # Append and auto-scroll. The widget stays read-only outside of writes.
@@ -324,12 +364,23 @@ class MainPage(tk.Frame):
         self._log_text.see("end")
         self._log_text.configure(state="disabled")
 
+    def append_progress_view(self, text: str) -> None:
+        # Created by gpt-5.2 | 2026-01-15_01
+        self._progress_text.configure(state="normal")
+        self._progress_text.insert("end", text)
+        self._progress_text.see("end")
+        self._progress_text.configure(state="disabled")
+
     def _clear_clicked(self) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
         # Clearing should also hide the progress header so the console returns to
         # an "idle" look.
         self.hide_progress_header()
         self._app.clear_logs()
+        try:
+            self._app.clear_progress()
+        except Exception:
+            pass
         self._app.set_status("Ready")
 
     def _open_output_clicked(self) -> None:

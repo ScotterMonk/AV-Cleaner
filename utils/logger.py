@@ -58,3 +58,32 @@ def get_logger(name: str) -> logging.Logger:
         return logging.getLogger(name)
     
     return logging.getLogger(f"{parent_name}.{name}")
+
+
+def format_duration(seconds: float) -> str:
+    """Convert seconds to HH:MM:SS.ms (milliseconds trimmed)."""
+    sign = "-" if seconds < 0 else ""
+    total_ms = int(round(abs(seconds) * 1000))
+
+    total_seconds, ms = divmod(total_ms, 1000)
+    hours, rem = divmod(total_seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+
+    ms_str = f"{ms:03d}".rstrip("0")
+    if not ms_str:
+        ms_str = "0"
+
+    return f"{sign}{hours:02d}:{minutes:02d}:{secs:02d}.{ms_str}"
+
+
+def format_time_cut(seconds: float) -> str:
+    """Convert seconds to MM:SS or HH:MM:SS (rounded to nearest second)."""
+    sign = "-" if seconds < 0 else ""
+    total_seconds = int(round(abs(seconds)))
+
+    hours, rem = divmod(total_seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+
+    if hours:
+        return f"{sign}{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{sign}{minutes:02d}:{secs:02d}"

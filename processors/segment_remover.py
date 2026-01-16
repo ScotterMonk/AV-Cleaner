@@ -5,6 +5,7 @@ from core.interfaces import EditManifest
 from typing import List, Tuple
 
 from utils.logger import get_logger
+from utils.logger import format_time_cut
 from utils.pause_removal_log import pause_removal_log_line
 
 
@@ -46,7 +47,12 @@ class SegmentRemover(BaseProcessor):
         # 4. Update the Manifest
         # The Renderer will look at this list to generate FFmpeg trim commands
         manifest.keep_segments = keep_segments
-        
+
+        total_removed_seconds = sum(end - start for start, end in sorted_removals)
+        logger.info(
+            f"[PROCESSOR COMPLETE] Cut {len(sorted_removals)} pauses from both videos (sync-safe) - Total time cut: {format_time_cut(total_removed_seconds)}"
+        )
+         
         return manifest
 
     def _invert_segments(self, remove_segments: List[Tuple[float, float]], total_duration: float) -> List[Tuple[float, float]]:

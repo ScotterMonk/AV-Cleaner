@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 
 # Ensure current directory is in sys.path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -16,7 +17,7 @@ from processors.spike_fixer import SpikeFixer
 from processors.audio_normalizer import AudioNormalizer
 from processors.segment_remover import SegmentRemover
 from config import QUALITY_PRESETS, PIPELINE_CONFIG
-from utils.logger import setup_logger
+from utils.logger import format_duration, setup_logger
 
 
 _ACTION_CHOICES = [
@@ -103,6 +104,14 @@ def main(host, guest, action, norm_mode):
     Video Automation Tool: Sync-safe cleaning and normalization.
     """
     logger = setup_logger()
+    action_start_time = time.time()
+    logger.info(f"[ACTION START] {action}")
+
+    subfunction_name = None
+    if action == "NORMALIZE_GUEST_AUDIO":
+        subfunction_name = "Normalize Guest Audio"
+    elif action == "REMOVE_PAUSES":
+        subfunction_name = "Remove pauses"
 
     # Preflight: ensure host+guest durations are aligned for all actions (even guest-only).
     host, guest = normalize_video_lengths(host, guest)
@@ -119,11 +128,25 @@ def main(host, guest, action, norm_mode):
     try:
         # Always render both host+guest outputs so the GUI/CLI can reliably switch to
         # a stable processed pair after any action (even guest-only workflows).
+        if subfunction_name:
+            logger.info(f"[SUBFUNCTION START] {subfunction_name}")
+
         h_out, g_out = pipeline.execute(host, guest)
 
+        if subfunction_name:
+            logger.info(f"[SUBFUNCTION COMPLETE] {subfunction_name}")
+
         created = [p for p in [h_out, g_out] if p]
+
+        action_duration = time.time() - action_start_time
+        logger.info(
+            f"[ACTION COMPLETE] {action} - Duration: {format_duration(action_duration)}"
+        )
+
         logger.info("Success! Files created:\n" + "\n".join(created))
     except Exception as e:
+        if subfunction_name:
+            logger.info(f"[SUBFUNCTION FAILED] {subfunction_name}")
         logger.error(f"Processing failed: {str(e)}")
         raise
 

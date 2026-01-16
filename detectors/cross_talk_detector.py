@@ -28,7 +28,7 @@ class CrossTalkDetector(BaseDetector):
         - Turn-taking: Natural back-and-forth → KEEP
         - True pause: Both silent > max_pause_duration → REMOVE EXCESS
         """
-        from utils.logger import get_logger
+        from utils.logger import get_logger, format_time_cut
         logger = get_logger(__name__)
         
         threshold_db = self.config.get('silence_threshold_db', -45)
@@ -82,7 +82,10 @@ class CrossTalkDetector(BaseDetector):
                     verified_regions.append((trimmed_start, end))
                     logger.debug(f"Detected pause {start:.2f}s to {end:.2f}s (duration={(end-start):.2f}s) → removing {trimmed_start:.2f}s to {end:.2f}s (excess={(end-trimmed_start):.2f}s)")
         
-        logger.info(f"Found {len(verified_regions)} pauses to remove (total excess time)")
+        total_seconds = sum(end - start for start, end in verified_regions)
+        logger.info(
+            f"[DETECTOR] Found {len(verified_regions)} pauses (total duration: {format_time_cut(total_seconds)} to remove)"
+        )
         return verified_regions
 
     @staticmethod

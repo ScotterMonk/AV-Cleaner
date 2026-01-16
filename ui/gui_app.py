@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import threading
@@ -16,7 +15,25 @@ from ui.gui_helpers import FileRowState, format_bytes, get_video_duration_second
 from ui.gui_pages import MainPage
 from ui.gui_settings_page import SettingsPage
 from ui.gui_ffmpeg_formatter import format_ffmpeg_progress_line, should_show_progress_line, reset_progress_counter
-from utils.path_helpers import make_fixed_output_path, make_processed_output_path
+from ui.gui_outputs import save_fixed_outputs as gui_save_fixed_outputs
+from utils.path_helpers import make_processed_output_path
+
+
+def _should_mirror_to_progress(line: str) -> bool:
+    """True for non-FFmpeg lines that should also appear in the PROGRESS pane."""
+
+    return any(
+        token in line
+        for token in (
+            "[ACTION START]",
+            "[ACTION COMPLETE]",
+            "[SUBFUNCTION START]",
+            "[SUBFUNCTION COMPLETE]",
+            "[SUBFUNCTION FAILED]",
+            "[PREFLIGHT START]",
+            "[PREFLIGHT COMPLETE]",
+        )
+    )
 
 
 class AVCleanerGUI(tk.Tk):
@@ -70,6 +87,7 @@ class AVCleanerGUI(tk.Tk):
         self._status_var = tk.StringVar(value="Ready")
 
         self._log_queue: Queue[str] = Queue()
+        self._progress_queue: Queue[str] = Queue()
         self._proc: subprocess.Popen | None = None
 
         self._build_shell()
@@ -247,6 +265,12 @@ class AVCleanerGUI(tk.Tk):
     def append_log(self, text: str) -> None:
         self._log_queue.put(text)
 
+    def clear_progress(self) -> None:
+        self._progress_queue.put("__CLEAR__")
+
+    def append_progress(self, text: str) -> None:
+        self._progress_queue.put(text)
+
     def _poll_log_queue(self) -> None:
         try:
             while True:
@@ -259,6 +283,18 @@ class AVCleanerGUI(tk.Tk):
                     main.append_log_view(line)
         except Empty:
             pass
+
+        try:
+            while True:
+                line = self._progress_queue.get_nowait()
+                if line == "__CLEAR__":
+                    main: MainPage = self._pages["main"]  # type: ignore[assignment]
+                    main.clear_progress_view()
+                else:
+                    main = self._pages["main"]  # type: ignore[assignment]
+                    main.append_progress_view(line)
+        except Empty:
+            pass
         self.after(60, self._poll_log_queue)
 
     # Modified by gpt-5.2 | 2026-01-13_01
@@ -268,6 +304,7 @@ class AVCleanerGUI(tk.Tk):
             return
 
         self.clear_logs()
+        self.clear_progress()
         self.set_status("Running…")
 
         # Reset FFmpeg progress line counter for new process
@@ -310,10 +347,12 @@ class AVCleanerGUI(tk.Tk):
                     if is_progress:
                         # Only show every other progress line to reduce console spam
                         if should_show_progress_line(show_every_nth=2):
-                            self.append_log(formatted_line)
+                            self.append_progress(formatted_line)
                     else:
                         # Pass through non-progress lines as-is
                         self.append_log(line)
+                        if _should_mirror_to_progress(line):
+                            self.append_progress(line)
                         
                 code = self._proc.wait()
                 if code == 0:
@@ -407,43 +446,15 @@ class AVCleanerGUI(tk.Tk):
             row.length_var.set("")
 
     def save_fixed_outputs(self, host: str, guest: str) -> None:
-        """Save fixed copies (_fixed) of any processed outputs (_processed)."""
-
-        # Match the pipeline naming behavior (_processed.mp4) so we can locate outputs.
-        # Note: "NORMALIZE GUEST AUDIO" intentionally does NOT generate a new host file.
-        host_processed = make_processed_output_path(host)
-        guest_processed = make_processed_output_path(guest)
-
-        host_exists = os.path.exists(host_processed)
-        guest_exists = os.path.exists(guest_processed)
-
-        if not host_exists and not guest_exists:
-            messagebox.showwarning(
-                "Nothing to save",
-                "Expected processed files not found. Run an action first.\n\nMissing:\n" + "\n".join([host_processed, guest_processed]),
-            )
-            return
-
-        def to_fixed(path: str) -> str:
-            return make_fixed_output_path(path)
-
         try:
-            saved_lines = []
-
-            if host_exists:
-                host_fixed = to_fixed(host_processed)
-                shutil.copy2(host_processed, host_fixed)
-                saved_lines.append(f"  {host_fixed}")
-
-            if guest_exists:
-                guest_fixed = to_fixed(guest_processed)
-                shutil.copy2(guest_processed, guest_fixed)
-                saved_lines.append(f"  {guest_fixed}")
+            saved = gui_save_fixed_outputs(host, guest, project_dir=self._project_dir)
+            if not saved:
+                return
         except Exception as e:
             messagebox.showerror("Save failed", str(e))
             return
 
-        self.append_log("[GUI] Saved fixed copies:\n" + "\n".join(saved_lines) + "\n")
+        self.append_log("[GUI] Saved fixed copies:\n" + "\n".join(f"  {p}" for p in saved) + "\n")
         self.set_status("Saved _fixed files")
 
 
