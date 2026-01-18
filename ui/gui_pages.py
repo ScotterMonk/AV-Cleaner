@@ -16,6 +16,8 @@ import tkinter as tk
 from tkinter import messagebox
 
 
+panel_external_padding_y = 6
+
 class MainPage(tk.Frame):
     # Modified by gpt-5.2 | 2026-01-12_01
     # Modified by Claude-4.5-Sonnet | 2026-01-08_08
@@ -35,6 +37,7 @@ class MainPage(tk.Frame):
     # - Does not run ffmpeg / processing directly; delegates to the app.
     # - Does not own file row state; reads rows from app._rows.
     def __init__(self, parent: tk.Widget, app) -> None:
+        # Modified by gpt-5.2 | 2026-01-18_01
         super().__init__(parent, bg=app._palette["bg"])
         self._app = app
 
@@ -45,11 +48,11 @@ class MainPage(tk.Frame):
 
         # Layout strategy:
         # - Row 0: Files panel (fixed height by content)
-        # - Row 1: Actions/Controls row (fixed height by content)
-        # - Row 2: Console/Progress row (takes remaining space)
+        # - Row 1: Two columns. Each column stacks:
+        #     - Left: Actions (fixed) + Console (expand)
+        #     - Right: Controls (fixed) + Progress (expand)
         grid.grid_rowconfigure(0, weight=0)
-        grid.grid_rowconfigure(1, weight=0)
-        grid.grid_rowconfigure(2, weight=1)
+        grid.grid_rowconfigure(1, weight=1)
         grid.grid_columnconfigure(0, weight=1)
 
         # Files
@@ -58,44 +61,45 @@ class MainPage(tk.Frame):
         # - host
         # - guest
         files_panel = app._make_panel(grid, "Files")
-        files_panel.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 14))
+        files_panel.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, panel_external_padding_y))
         self._build_files(files_panel.body)
 
-        # Actions & Controls (Row 1)
-        # --------------------------
-        # Split into two columns:
-        # - Left: Actions panel (50%)
-        # - Right: Controls panel (50%)
+        # Row 1: Two columns; each column stacks a fixed-height top panel and
+        # an expandable bottom panel.
         row1 = tk.Frame(grid, bg=app._palette["bg"])
-        row1.grid(row=1, column=0, sticky="nsew", padx=0, pady=(0, 14))
+        row1.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
+        row1.grid_rowconfigure(0, weight=1)
         row1.grid_columnconfigure(0, weight=1)
         row1.grid_columnconfigure(1, weight=1)
 
-        actions_panel = app._make_panel(row1, "Actions")
-        actions_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        # Left column: Actions (top) + Console (bottom)
+        left_col = tk.Frame(row1, bg=app._palette["bg"])
+        left_col.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        left_col.grid_rowconfigure(0, weight=0)
+        left_col.grid_rowconfigure(1, weight=1)
+        left_col.grid_columnconfigure(0, weight=1)
+
+        actions_panel = app._make_panel(left_col, "Actions")
+        actions_panel.grid(row=0, column=0, sticky="nsew", pady=(0, panel_external_padding_y))
         self._build_actions(actions_panel.body)
 
-        controls_panel = app._make_panel(row1, "Controls")
-        controls_panel.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
-        self._build_controls(controls_panel.body)
-
-        # Console & Progress (Row 2)
-        # -------------------------
-        # Split into two columns:
-        # - Left: Console panel (50%)
-        # - Right: Progress panel (50%)
-        row2 = tk.Frame(grid, bg=app._palette["bg"])
-        row2.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
-        row2.grid_rowconfigure(0, weight=1)
-        row2.grid_columnconfigure(0, weight=1)
-        row2.grid_columnconfigure(1, weight=1)
-
-        console_panel = app._make_panel(row2, "Console")
-        console_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        console_panel = app._make_panel(left_col, "Console")
+        console_panel.grid(row=1, column=0, sticky="nsew")
         self._build_logs(console_panel.body)
 
-        progress_panel = app._make_panel(row2, "Progress")
-        progress_panel.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        # Right column: Controls (top) + Progress (bottom)
+        right_col = tk.Frame(row1, bg=app._palette["bg"])
+        right_col.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        right_col.grid_rowconfigure(0, weight=0)
+        right_col.grid_rowconfigure(1, weight=1)
+        right_col.grid_columnconfigure(0, weight=1)
+
+        controls_panel = app._make_panel(right_col, "Controls")
+        controls_panel.grid(row=0, column=0, sticky="nsew", pady=(0, panel_external_padding_y))
+        self._build_controls(controls_panel.body)
+
+        progress_panel = app._make_panel(right_col, "Progress")
+        progress_panel.grid(row=1, column=0, sticky="nsew")
         self._build_progress(progress_panel.body)
 
     def _build_files(self, parent: tk.Frame) -> None:

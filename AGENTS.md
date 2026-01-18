@@ -6,11 +6,12 @@ This file provides guidance to agents when working with code in this repository.
 - Run tests from project root: `pytest` (NOT from tests/ subdirectory; imports require root context)
 - Override normalization: `python main.py --host ... --guest ... --norm-mode MATCH_HOST|STANDARD_LUFS`
 
+--- do not remove this ---
 ## Shell & Environment (Windows-specific)
-- **Base folder**: `D:\Dropbox\Projects\AV-cleaner\app\`
+- **Base folder**: `D:/Dropbox/Projects/AV-cleaner/app/`. Convert between "\" and "/" as necessary.
 - **Prefer PowerShell** for commands; if `;` is treated as an argument, you likely ran in `cmd.exe` (use `&` or `&&` instead)
-
-**Videos for testing**: `{base folder}\test_videos`
+- **Videos for testing**: `{base folder}/test_videos`
+--- do not remove this ---
 
 ## Critical Non-Obvious Gotchas
 - **Sync**

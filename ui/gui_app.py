@@ -127,10 +127,10 @@ class AVCleanerGUI(tk.Tk):
 
         lbl = tk.Label(hdr, text=title.upper(), font=self._f(self._fonts["section"], "bold"))
         lbl.configure(bg=self._palette["panel2"], fg=self._ui_colors["accent_font"])
-        lbl.pack(side="left", padx=16, pady=14)
+        lbl.pack(side="left", padx=16, pady=3)
 
         body = tk.Frame(outer, bg=self._palette["panel"])
-        body.pack(fill="both", expand=True, padx=16, pady=16)
+        body.pack(fill="both", expand=True, padx=16, pady=12)
         outer.body = body  # type: ignore[attr-defined]
         return outer
 
