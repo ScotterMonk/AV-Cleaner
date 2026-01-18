@@ -310,12 +310,7 @@ class AVCleanerGUI(tk.Tk):
         # Reset FFmpeg progress line counter for new process
         reset_progress_counter()
 
-        # Show the fixed FFmpeg-style progress header above the scrolling console.
-        try:
-            main: MainPage = self._pages["main"]  # type: ignore[assignment]
-            main.show_progress_header()
-        except Exception:
-            pass
+        # Progress header is now always visible (no need to show it here)
 
         cmd = [
             sys.executable,

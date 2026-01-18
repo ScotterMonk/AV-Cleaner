@@ -201,8 +201,50 @@ class MainPage(tk.Frame):
         wrap = tk.Frame(parent, bg=app._palette["panel"], highlightthickness=2, highlightbackground=app._palette["edge2"])
         wrap.pack(fill="both", expand=True)
 
+        # Console header (visible from start so users know column layout)
+        self._console_header = tk.Frame(
+            wrap,
+            bg=app._palette["panel2"],
+            height=20,
+        )
+        self._console_header.pack_propagate(False)
+        self._console_header.pack(side="top", fill="x")
+
+        from ui.gui_ffmpeg_formatter import get_header_line
+
+        self._header_text = tk.Text(
+            self._console_header,
+            bg=app._palette["panel2"],
+            fg=app._palette["muted"],
+            font=app._mono(),
+            relief="flat",
+            bd=0,
+            padx=0,
+            pady=0,
+            height=1,
+            wrap="none",
+            cursor="arrow",
+        )
+        self._header_text.pack(side="left", fill="both", expand=True)
+        self._header_text.insert("1.0", get_header_line())
+        self._header_text.configure(state="disabled")
+
+        # Invisible scrollbar spacer so header matches the body scrollbar width.
+        header_scrollbar = tk.Scrollbar(
+            self._console_header,
+            bg=app._palette["panel2"],
+            troughcolor=app._palette["panel2"],
+            activebackground=app._palette["panel2"],
+            highlightthickness=0,
+            relief="flat",
+            bd=0,
+            width=12,
+        )
+        header_scrollbar.pack(side="right", fill="y")
+
+        # Console area (scrolling pane).
         self._log_area = tk.Frame(wrap, bg=app._palette["panel"])
-        self._log_area.pack(side="top", fill="both", expand=True)
+        self._log_area.pack(side="top", fill="both", expand=True, pady=(15, 0))
 
         # Scrollbar for log text (comprehensive gray styling for Windows)
         scrollbar = tk.Scrollbar(
@@ -246,51 +288,9 @@ class MainPage(tk.Frame):
         wrap = tk.Frame(parent, bg=app._palette["panel"], highlightthickness=2, highlightbackground=app._palette["edge2"])
         wrap.pack(fill="both", expand=True)
 
-        # Progress header (hidden by default; shown when an Action starts)
-        self._progress_header = tk.Frame(
-            wrap,
-            bg=app._palette["panel2"],
-            height=20,
-        )
-        self._progress_header.pack_propagate(False)
-        self._progress_header.pack(side="top", fill="x")
-        self._progress_header.pack_forget()
-
-        from ui.gui_ffmpeg_formatter import get_header_line
-
-        self._header_text = tk.Text(
-            self._progress_header,
-            bg=app._palette["panel2"],
-            fg=app._palette["muted"],
-            font=app._mono(),
-            relief="flat",
-            bd=0,
-            padx=0,
-            pady=0,
-            height=1,
-            wrap="none",
-            cursor="arrow",
-        )
-        self._header_text.pack(side="left", fill="both", expand=True)
-        self._header_text.insert("1.0", get_header_line())
-        self._header_text.configure(state="disabled")
-
-        # Invisible scrollbar spacer so header matches the body scrollbar width.
-        header_scrollbar = tk.Scrollbar(
-            self._progress_header,
-            bg=app._palette["panel2"],
-            troughcolor=app._palette["panel2"],
-            activebackground=app._palette["panel2"],
-            highlightthickness=0,
-            relief="flat",
-            bd=0,
-            width=12,
-        )
-        header_scrollbar.pack(side="right", fill="y")
-
         # Progress area (scrolling pane).
         self._progress_area = tk.Frame(wrap, bg=app._palette["panel"])
-        self._progress_area.pack(side="top", fill="both", expand=True, pady=(15, 0))
+        self._progress_area.pack(side="top", fill="both", expand=True)
 
         scrollbar = tk.Scrollbar(
             self._progress_area,
@@ -314,7 +314,7 @@ class MainPage(tk.Frame):
             bd=0,
             padx=16,
             pady=10,
-            wrap="none",
+            wrap="word",
             yscrollcommand=scrollbar.set,
         )
         self._progress_text.pack(side="left", fill="both", expand=True)
@@ -322,30 +322,6 @@ class MainPage(tk.Frame):
 
         self._progress_text.insert("end", "Progress output will appear here.\n")
         self._progress_text.configure(state="disabled")
-
-    def show_progress_header(self) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
-        """Show the fixed header row above the scrolling console."""
-
-        if not hasattr(self, "_progress_header") or not hasattr(self, "_progress_area"):
-            return
-
-        # Ensure it appears above the scrolling pane.
-        # pack(before=...) keeps the header in a stable position even if other
-        # widgets are re-packed later.
-        self._progress_header.pack(side="top", fill="x", before=self._progress_area)
-
-    def hide_progress_header(self) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
-        """Hide the fixed header row above the scrolling console."""
-
-        if not hasattr(self, "_progress_header"):
-            return
-        try:
-            self._progress_header.pack_forget()
-        except Exception:
-            # Tkinter can raise if called mid-destroy; hiding the header is best-effort.
-            pass
 
     def clear_log_view(self) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
@@ -377,9 +353,7 @@ class MainPage(tk.Frame):
 
     def _clear_clicked(self) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
-        # Clearing should also hide the progress header so the console returns to
-        # an "idle" look.
-        self.hide_progress_header()
+        # Progress header stays visible (shows column layout at all times)
         self._app.clear_logs()
         try:
             self._app.clear_progress()
