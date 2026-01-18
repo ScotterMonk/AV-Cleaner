@@ -1,0 +1,179 @@
+17:31:58 - INFO - [ACTION START] REMOVE_PAUSES
+17:31:58 - INFO - Duration mismatch detected; normalizing lengths: host=86.229s guest=84.629s target=86.229s
+17:31:58 - INFO - Normalizing duration: in=test_videos/host.mp4 out=test_videos\host_processed.mp4 pad=0.000s target=86.229s
+17:31:58 - INFO - Running FFmpeg: ffmpeg -i test_videos/host.mp4 -filter_complex [0:v]trim=duration=86.229333[s0];[s0]setpts=PTS-STARTPTS[s1];[0:a]atrim=duration=86.229333[s2];[s2]asetpts=PTS-STARTPTS[s3] -map [s1] -map [s3] -b:a 192k -acodec aac -crf 23 -preset fast -vcodec libx264 test_videos\host_processed.mp4 -y -progress pipe:1 -nostats
+--------------------------------------------------------------------------------
+Frame    FPS      Q      Size       Progress     Bitrate      Speed    Elapsed   
+--------------------------------------------------------------------------------
+3        0.00     28.0   0kB        00:00:00        9.2kbits/s 0.0806x  00:00:00  
+50       47.58    28.0   768kB      00:00:02     3145.9kbits/s  1.9x    00:00:01  
+93       59.35    28.0   1536kB     00:00:03     3318.7kbits/s 2.42x    00:00:01  
+146      69.89    28.0   2304kB     00:00:06     3145.8kbits/s 2.87x    00:00:02  
+201      77.41    28.0   3072kB     00:00:08     3035.1kbits/s 3.19x    00:00:02  
+253      81.17    28.0   4096kB     00:00:10     3221.3kbits/s 3.34x    00:00:03  
+309      84.83    28.0   4864kB     00:00:12     3115.0kbits/s 3.51x    00:00:03  
+361      86.59    28.0   5632kB     00:00:14     3084.4kbits/s 3.59x    00:00:04  
+413      88.19    28.0   6144kB     00:00:17     2939.1kbits/s 3.66x    00:00:04  
+467      89.94    28.0   6912kB     00:00:19     2922.5kbits/s 3.73x    00:00:05  
+512      89.67    28.0   7680kB     00:00:21     2960.7kbits/s 3.72x    00:00:05  
+571      91.65    28.0   8704kB     00:00:23     3023.5kbits/s 3.79x    00:00:06  
+618      91.49    28.0   9472kB     00:00:25     3023.2kbits/s  3.8x    00:00:06  
+670      92.03    28.0   10240kB    00:00:27     3013.9kbits/s 3.82x    00:00:07  
+717      92.00    28.0   11008kB    00:00:29     3027.0kbits/s 3.82x    00:00:07  
+768      92.47    28.0   11776kB    00:00:31     3022.5kbits/s 3.84x    00:00:08  
+816      92.58    28.0   12544kB    00:00:33     3029.8kbits/s 3.85x    00:00:08  
+864      92.49    28.0   13312kB    00:00:35     3036.3kbits/s 3.84x    00:00:09  
+912      92.38    28.0   14336kB    00:00:37     3097.3kbits/s 3.84x    00:00:09  
+955      91.91    28.0   15104kB    00:00:39     3116.0kbits/s 3.82x    00:00:10  
+1006     92.13    28.0   15872kB    00:00:41     3108.1kbits/s 3.83x    00:00:10  
+1062     92.93    28.0   16640kB    00:00:44     3086.4kbits/s 3.86x    00:00:11  
+1107     92.63    28.0   17664kB    00:00:46     3142.9kbits/s 3.85x    00:00:12  
+1157     92.88    25.0   18176kB    00:00:48     3094.0kbits/s 3.86x    00:00:12  
+1224     94.32    28.0   18944kB    00:00:50     3047.9kbits/s 3.92x    00:00:13  
+1273     94.38    28.0   19456kB    00:00:52     3009.6kbits/s 3.93x    00:00:13  
+1336     95.36    28.0   20224kB    00:00:55     2980.7kbits/s 3.97x    00:00:14  
+1391     95.80    28.0   20736kB    00:00:57     2935.1kbits/s 3.99x    00:00:14  
+1442     95.84    28.0   21504kB    00:01:00     2936.0kbits/s 3.99x    00:00:15  
+1502     96.53    28.0   22272kB    00:01:02     2919.2kbits/s 4.02x    00:00:15  
+1558     96.97    28.0   23040kB    00:01:04     2911.2kbits/s 4.04x    00:00:16  
+1609     96.97    28.0   23808kB    00:01:06     2912.8kbits/s 4.04x    00:00:16  
+1660     96.97    28.0   24576kB    00:01:09     2914.3kbits/s 4.04x    00:00:17  
+1716     97.29    28.0   25344kB    00:01:11     2907.1kbits/s 4.05x    00:00:17  
+1772     97.63    28.0   26112kB    00:01:13     2900.5kbits/s 4.06x    00:00:18  
+1819     97.47    28.0   26624kB    00:01:15     2880.8kbits/s 4.06x    00:00:18  
+1871     97.57    28.0   27392kB    00:01:17     2881.5kbits/s 4.06x    00:00:19  
+1926     97.79    28.0   28160kB    00:01:20     2877.6kbits/s 4.07x    00:00:19  
+1970     97.45    28.0   28928kB    00:01:22     2890.0kbits/s 4.06x    00:00:20  
+2037     98.26    28.0   29952kB    N/A          N/A          N/A      00:00:20  
+2069     98.91    -1.0   30550kB    00:01:26     2905.9kbits/s 4.12x    00:00:20  
+--------------------------------------------------------------------------------
+FFmpeg complete | elapsed=00:00:21 | final_size=29.8MB | avg_bitrate=2905.9kbits/s
+17:32:19 - INFO - Normalizing duration: in=test_videos/guest.mp4 out=test_videos\guest_processed.mp4 pad=1.600s target=86.229s
+17:32:19 - INFO - Running FFmpeg: ffmpeg -i test_videos/guest.mp4 -filter_complex [0:v]tpad=stop_duration=1.5999999999999943:stop_mode=clone[s0];[s0]trim=duration=86.229333[s1];[s1]setpts=PTS-STARTPTS[s2];[0:a]apad=pad_dur=1.5999999999999943[s3];[s3]atrim=duration=86.229333[s4];[s4]asetpts=PTS-STARTPTS[s5] -map [s2] -map [s5] -b:a 192k -acodec aac -crf 23 -preset fast -vcodec libx264 test_videos\guest_processed.mp4 -y -progress pipe:1 -nostats
+--------------------------------------------------------------------------------
+Frame    FPS      Q      Size       Progress     Bitrate      Speed    Elapsed   
+--------------------------------------------------------------------------------
+5        0.00     28.0   0kB        00:00:00        3.1kbits/s 0.236x   00:00:00  
+55       52.03    28.0   1024kB     00:00:02     3798.8kbits/s 2.09x    00:00:01  
+107      67.96    28.0   1792kB     00:00:04     3355.5kbits/s 2.78x    00:00:01  
+151      72.32    28.0   2304kB     00:00:06     3040.2kbits/s 2.97x    00:00:02  
+202      77.50    28.0   3072kB     00:00:08     3019.9kbits/s  3.2x    00:00:02  
+240      77.17    28.0   4096kB     00:00:09     3383.7kbits/s 3.19x    00:00:03  
+289      79.60    28.0   5120kB     00:00:11     3519.7kbits/s 3.28x    00:00:03  
+331      79.55    28.0   6144kB     00:00:13     3671.6kbits/s 3.29x    00:00:04  
+375      80.03    28.0   7168kB     00:00:15     3778.3kbits/s 3.32x    00:00:04  
+418      80.03    28.0   7936kB     00:00:17     3759.7kbits/s 3.31x    00:00:05  
+463      80.75    28.0   8960kB     00:00:19     3821.3kbits/s 3.35x    00:00:05  
+505      80.78    28.0   9728kB     00:00:20     3802.4kbits/s 3.35x    00:00:06  
+555      81.87    28.0   10752kB    00:00:23     3822.7kbits/s  3.4x    00:00:06  
+599      82.21    28.0   11776kB    00:00:24     3878.2kbits/s 3.41x    00:00:07  
+642      82.25    28.0   12544kB    00:00:26     3853.5kbits/s 3.42x    00:00:07  
+686      82.54    28.0   13312kB    00:00:28     3832.0kbits/s 3.42x    00:00:08  
+727      82.14    28.0   14080kB    00:00:30     3818.3kbits/s 3.41x    00:00:08  
+775      82.62    28.0   15104kB    00:00:32     3841.6kbits/s 3.43x    00:00:09  
+823      83.16    28.0   15872kB    00:00:34     3800.9kbits/s 3.46x    00:00:09  
+870      83.62    28.0   16896kB    00:00:36     3827.1kbits/s 3.48x    00:00:10  
+912      83.49    28.0   17920kB    00:00:37     3875.9kbits/s 3.47x    00:00:11  
+952      83.16    28.0   18688kB    00:00:39     3867.6kbits/s 3.46x    00:00:11  
+998      83.46    28.0   19712kB    00:00:41     3891.1kbits/s 3.47x    00:00:12  
+1039     83.25    28.0   20736kB    00:00:43     3931.4kbits/s 3.46x    00:00:12  
+1080     83.03    28.0   21760kB    00:00:44     3968.6kbits/s 3.45x    00:00:13  
+1119     82.80    28.0   22784kB    00:00:46     4010.3kbits/s 3.44x    00:00:13  
+1161     82.75    28.0   23552kB    00:00:48     3995.3kbits/s 3.44x    00:00:14  
+1207     82.97    28.0   24576kB    00:00:50     4009.8kbits/s 3.45x    00:00:14  
+1251     83.05    28.0   25600kB    00:00:52     4029.8kbits/s 3.45x    00:00:15  
+1296     83.20    28.0   26624kB    00:00:53     4045.2kbits/s 3.46x    00:00:15  
+1323     82.09    28.0   27136kB    00:00:55     4038.7kbits/s 3.42x    00:00:16  
+1368     82.22    28.0   28160kB    00:00:56     4053.1kbits/s 3.42x    00:00:16  
+1412     82.29    28.0   28928kB    00:00:58     4033.7kbits/s 3.42x    00:00:17  
+1452     82.13    28.0   29696kB    00:01:00     4026.5kbits/s 3.42x    00:00:17  
+1477     81.21    28.0   29952kB    00:01:01     3992.4kbits/s 3.38x    00:00:18  
+1520     81.26    28.0   31232kB    00:01:03     4047.8kbits/s 3.38x    00:00:18  
+1564     81.30    28.0   32256kB    00:01:05     4060.0kbits/s 3.38x    00:00:19  
+1614     81.70    28.0   33024kB    00:01:07     4027.8kbits/s  3.4x    00:00:19  
+1655     81.62    28.0   33792kB    00:01:08     4019.2kbits/s  3.4x    00:00:20  
+1695     81.52    28.0   34816kB    00:01:10     4043.2kbits/s 3.39x    00:00:20  
+1736     81.43    28.0   35584kB    00:01:12     4034.7kbits/s 3.39x    00:00:21  
+1776     81.32    28.0   36608kB    00:01:13     4057.2kbits/s 3.38x    00:00:21  
+1813     81.12    28.0   37376kB    00:01:15     4057.7kbits/s 3.38x    00:00:22  
+1853     81.02    28.0   38400kB    00:01:17     4078.7kbits/s 3.37x    00:00:22  
+1899     81.20    28.0   39424kB    00:01:19     4086.0kbits/s 3.38x    00:00:23  
+1937     81.04    28.0   40192kB    00:01:20     4083.8kbits/s 3.37x    00:00:23  
+1974     80.85    28.0   40960kB    00:01:22     4083.7kbits/s 3.37x    00:00:24  
+2023     81.15    28.0   41984kB    N/A          N/A          N/A      00:00:25  
+2069     82.49    -1.0   42517kB    00:01:26     4044.1kbits/s 3.43x    00:00:25  
+--------------------------------------------------------------------------------
+FFmpeg complete | elapsed=00:00:25 | final_size=41.5MB | avg_bitrate=4044.1kbits/s
+17:32:45 - INFO - [PREFLIGHT COMPLETE] Padded shorter video (guest) to fit longer video - Both videos modified to 01:26 duration - Completed in 00:00:46.307
+17:32:45 - INFO - Phase 1: Extraction & Analysis
+17:32:45 - INFO - Extracting audio from: host_processed.mp4
+17:32:45 - INFO - Extracting audio from: guest_processed.mp4
+17:32:45 - INFO - Running cross_talk_detector...
+17:32:45 - INFO - CrossTalkDetector config: threshold=-20dB, max_pause_duration=1.0s, window=200ms
+17:32:45 - INFO - [DETECTOR] Found 1 pauses (total duration: 00:00 to remove)
+17:32:45 - INFO - Phase 1 complete - Duration: 00:00:00.343
+17:32:45 - INFO - Phase 2: Building Edit Manifest
+17:32:45 - INFO - Running SegmentRemover...
+17:32:45 - INFO - pause rem-00:00:46-to-00:00:47
+17:32:45 - INFO - [PROCESSOR COMPLETE] Cut 1 pauses from both videos (sync-safe) - Total time cut: 00:00
+17:32:45 - INFO - Phase 2 complete - Duration: 00:00:00.0
+17:32:45 - INFO - Phase 3: Rendering (This may take time)
+17:32:45 - INFO - Detected FFmpeg GPU capabilities: encoders=['h264_nvenc', 'hevc_nvenc'] hwaccels=['cuda']
+17:32:45 - WARNING - CUDA HWACCEL DECODE ENABLED; FILTER GRAPH IS CPU-SIDE SO DECODE SPEEDUPS MAY BE LIMITED
+17:32:45 - INFO - Selected encoder options: vcodec=h264_nvenc preset=p4 crf=None cq=20 rc=vbr acodec=aac audio_bitrate=320k
+17:32:45 - INFO - Rendering Host Video...
+17:32:45 - INFO - Output path equals input path; rendering to temp then replacing: D:\Dropbox\Projects\AV-cleaner\app\test_videos\.host_processed.tmp-p2ac9s1k.mp4
+17:32:45 - INFO - Running FFmpeg: ffmpeg -hwaccel cuda -i test_videos\host_processed.mp4 -filter_complex [0:v]trim=end=46.6:start=0.0[s0];[s0]setpts=PTS-STARTPTS[s1];[0:v]trim=end=86.22931972789115:start=47.0[s2];[s2]setpts=PTS-STARTPTS[s3];[s1][s3]concat=a=0:n=2:v=1[s4];[0:a]atrim=end=46.6:start=0.0[s5];[s5]asetpts=PTS-STARTPTS[s6];[0:a]atrim=end=86.22931972789115:start=47.0[s7];[s7]asetpts=PTS-STARTPTS[s8];[s6][s8]concat=a=1:n=2:v=0[s9] -map [s4] -map [s9] -b:a 320k -acodec aac -cq 20 -preset p4 -rc vbr -vcodec h264_nvenc D:\Dropbox\Projects\AV-cleaner\app\test_videos\.host_processed.tmp-p2ac9s1k.mp4 -y -progress pipe:1 -nostats
+--------------------------------------------------------------------------------
+Frame    FPS      Q      Size       Progress     Bitrate      Speed    Elapsed   
+--------------------------------------------------------------------------------
+69       0.00     16.0   1792kB     00:00:02     5338.3kbits/s 5.36x    00:00:00  
+194      186.81   13.0   4608kB     00:00:07     4743.3kbits/s 7.66x    00:00:01  
+294      190.87   16.0   7168kB     00:00:12     4842.9kbits/s 7.87x    00:00:01  
+395      191.88   16.0   9472kB     00:00:16     4750.7kbits/s 7.93x    00:00:02  
+502      194.46   13.0   11776kB    00:00:20     4639.8kbits/s 8.05x    00:00:02  
+616      199.41   16.0   15616kB    00:00:25     5008.5kbits/s 8.27x    00:00:03  
+713      197.84   16.0   18176kB    00:00:29     5033.2kbits/s 8.21x    00:00:03  
+836      202.80   13.0   22016kB    00:00:34     5196.3kbits/s 8.42x    00:00:04  
+975      209.77   16.0   27904kB    00:00:40     5644.2kbits/s 8.71x    00:00:04  
+1110     215.10   13.0   32000kB    00:00:46     5683.3kbits/s 8.94x    00:00:05  
+1244     219.24   16.0   34304kB    00:00:51     5434.7kbits/s 9.11x    00:00:05  
+1383     223.30   16.0   37120kB    00:00:57     5288.5kbits/s 9.28x    00:00:06  
+1522     226.86   13.0   40192kB    00:01:03     5202.2kbits/s 9.43x    00:00:06  
+1652     229.09   16.0   43264kB    00:01:08     5158.3kbits/s 9.53x    00:00:07  
+1793     231.79   16.0   46848kB    00:01:14     5145.6kbits/s 9.64x    00:00:07  
+1927     233.63   16.0   49920kB    00:01:20     5101.2kbits/s 9.72x    00:00:08  
+2060     236.50   16.0   54363kB    00:01:25     5196.1kbits/s 9.84x    00:00:08  
+--------------------------------------------------------------------------------
+FFmpeg complete | elapsed=00:00:08 | final_size=53.1MB | avg_bitrate=5196.1kbits/s
+17:32:54 - INFO - Rendering Guest Video...
+17:32:54 - INFO - Output path equals input path; rendering to temp then replacing: D:\Dropbox\Projects\AV-cleaner\app\test_videos\.guest_processed.tmp-itk6z4gq.mp4
+17:32:54 - INFO - Running FFmpeg: ffmpeg -hwaccel cuda -i test_videos\guest_processed.mp4 -filter_complex [0:v]trim=end=46.6:start=0.0[s0];[s0]setpts=PTS-STARTPTS[s1];[0:v]trim=end=86.22931972789115:start=47.0[s2];[s2]setpts=PTS-STARTPTS[s3];[s1][s3]concat=a=0:n=2:v=1[s4];[0:a]atrim=end=46.6:start=0.0[s5];[s5]asetpts=PTS-STARTPTS[s6];[0:a]atrim=end=86.22931972789115:start=47.0[s7];[s7]asetpts=PTS-STARTPTS[s8];[s6][s8]concat=a=1:n=2:v=0[s9] -map [s4] -map [s9] -b:a 320k -acodec aac -cq 20 -preset p4 -rc vbr -vcodec h264_nvenc D:\Dropbox\Projects\AV-cleaner\app\test_videos\.guest_processed.tmp-itk6z4gq.mp4 -y -progress pipe:1 -nostats
+--------------------------------------------------------------------------------
+Frame    FPS      Q      Size       Progress     Bitrate      Speed    Elapsed   
+--------------------------------------------------------------------------------
+72       0.00     16.0   2304kB     00:00:02     6565.1kbits/s 5.65x    00:00:00  
+181      177.66   16.0   5120kB     00:00:07     5655.3kbits/s 7.28x    00:00:01  
+304      197.76   14.0   10496kB    00:00:12     6855.8kbits/s 8.16x    00:00:01  
+445      216.02   16.0   16384kB    00:00:18     7287.9kbits/s 8.94x    00:00:02  
+578      225.03   13.0   21248kB    00:00:23     7265.3kbits/s 9.33x    00:00:02  
+717      231.91   16.0   26112kB    00:00:29     7190.2kbits/s 9.62x    00:00:03  
+854      236.70   16.0   31488kB    00:00:35     7274.7kbits/s 9.83x    00:00:03  
+990      240.31   16.0   36608kB    00:00:41     7292.2kbits/s 9.98x    00:00:04  
+1128     243.29   16.0   43776kB    00:00:46     7650.4kbits/s 10.1x    00:00:04  
+1265     245.65   16.0   50688kB    00:00:52     7896.7kbits/s 10.2x    00:00:05  
+1403     247.59   16.0   56320kB    00:00:58     7909.3kbits/s 10.3x    00:00:05  
+1538     248.82   14.0   62976kB    00:01:03     8066.2kbits/s 10.3x    00:00:06  
+1675     250.08   16.0   68096kB    00:01:09     8007.3kbits/s 10.4x    00:00:06  
+1811     251.00   17.0   75008kB    00:01:15     8156.6kbits/s 10.4x    00:00:07  
+1947     251.93   16.0   81152kB    00:01:21     8207.4kbits/s 10.5x    00:00:07  
+2060     253.78   16.0   85082kB    00:01:25     8132.1kbits/s 10.6x    00:00:08  
+--------------------------------------------------------------------------------
+FFmpeg complete | elapsed=00:00:08 | final_size=83.1MB | avg_bitrate=8132.1kbits/s
+17:33:02 - INFO - Phase 3 complete - Duration: 00:00:17.507
+17:33:02 - INFO - 1 pauses removed
+17:33:02 - INFO - Pause removal log saved: D:\Dropbox\Projects\AV-cleaner\app\test_videos\2026-01-15-pauses-rem-log.txt
+17:33:02 - INFO - [ACTION COMPLETE] REMOVE_PAUSES - Duration: 00:01:04.268
+17:33:02 - INFO - Success! Files created:
+test_videos\host_processed.mp4
+test_videos\guest_processed.mp4
