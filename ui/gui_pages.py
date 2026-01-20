@@ -167,29 +167,16 @@ class MainPage(tk.Frame):
         # Actions are arranged as two packed rows for simple left-to-right flow.
         # Using pack() here keeps the button row heights content-driven.
 
-        # Row 1: NORMALIZE GUEST AUDIO, REMOVE PAUSES, RUN ALL
-        # "RUN ALL" is the primary action (styled differently).
-        row1 = tk.Frame(parent, bg=app._palette["panel"])
-        row1.pack(fill="x", pady=(0, 10))
-        app._make_btn(row1, "NORMALIZE GUEST AUDIO", self._normalize_audio_clicked, kind="secondary").pack(
+        # Single row: PROCESS, SAVE MODIFIED FILES, CLEAR, OPEN OUT
+        # Keep all actions aligned on one line with consistent horizontal spacing.
+        row = tk.Frame(parent, bg=app._palette["panel"])
+        row.pack(fill="x")
+        app._make_btn(row, "PROCESS", self._run_clicked, kind="primary").pack(side="left", padx=(0, 6))
+        app._make_btn(row, "SAVE MODIFIED FILES", self._save_modified_clicked, kind="secondary").pack(
             side="left", padx=(0, 6)
         )
-        app._make_btn(row1, "REMOVE PAUSES", self._remove_pauses_clicked, kind="secondary").pack(
-            side="left", padx=(0, 6)
-        )
-        app._make_btn(row1, "RUN ALL", self._run_clicked, kind="primary").pack(side="left")
-
-        # Row 2: SAVE MODIFIED FILES, CLEAR, OPEN OUT
-        # - SAVE MODIFIED FILES: writes final outputs (if already processed)
-        # - CLEAR: clears the console and resets status
-        # - OPEN OUT: opens the output folder (best-effort)
-        row2 = tk.Frame(parent, bg=app._palette["panel"])
-        row2.pack(fill="x")
-        app._make_btn(row2, "SAVE MODIFIED FILES", self._save_modified_clicked, kind="secondary").pack(
-            side="left", padx=(0, 6)
-        )
-        app._make_btn(row2, "CLEAR", self._clear_clicked, kind="secondary").pack(side="left", padx=(0, 6))
-        app._make_btn(row2, "OPEN OUT", self._open_output_clicked, kind="secondary").pack(side="left")
+        app._make_btn(row, "CLEAR", self._clear_clicked, kind="secondary").pack(side="left", padx=(0, 6))
+        app._make_btn(row, "OPEN OUT", self._open_output_clicked, kind="secondary").pack(side="left")
 
     def _build_logs(self, parent: tk.Frame) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
@@ -273,6 +260,7 @@ class MainPage(tk.Frame):
             yscrollcommand=scrollbar.set,
         )
         self._log_text.pack(side="left", fill="both", expand=True)
+        self._enable_text_copy_shortcuts(self._log_text)
         scrollbar.config(command=self._log_text.yview)
 
         # Initial banner line: users can confirm the console is working even
@@ -318,10 +306,40 @@ class MainPage(tk.Frame):
             yscrollcommand=scrollbar.set,
         )
         self._progress_text.pack(side="left", fill="both", expand=True)
+        self._enable_text_copy_shortcuts(self._progress_text)
         scrollbar.config(command=self._progress_text.yview)
 
-        self._progress_text.insert("end", "Progress output will appear here.\n")
+        self._progress_text.insert("end", "High level progress output will appear here.\n")
         self._progress_text.configure(state="disabled")
+
+    def _enable_text_copy_shortcuts(self, widget: tk.Text) -> None:
+        # Created by gpt-5.2 | 2026-01-18_02
+        """Make read-only Text widgets copyable via Ctrl+C on Windows.
+
+        Tkinter Text widgets in `state="disabled"` can allow selection, but may not
+        reliably receive focus / default copy bindings depending on platform/theme.
+        We bind focus + copy explicitly.
+        """
+
+        def focus_on_click(event) -> None:
+            widget.focus_set()
+
+        def copy_selection(event):
+            try:
+                selected = widget.get("sel.first", "sel.last")
+            except tk.TclError:
+                return "break"
+
+            widget.clipboard_clear()
+            widget.clipboard_append(selected)
+            widget.update()
+            return "break"
+
+        widget.bind("<Button-1>", focus_on_click, add=True)
+        widget.bind("<<Copy>>", copy_selection)
+        widget.bind("<Control-c>", copy_selection)
+        widget.bind("<Control-C>", copy_selection)
+        widget.bind("<Control-Insert>", copy_selection)
 
     def clear_log_view(self) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
@@ -373,7 +391,7 @@ class MainPage(tk.Frame):
 
     def _run_clicked(self) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
-        # "RUN ALL" requires both files because it performs sync-preserving edits
+        # "PROCESS" requires both files because it performs sync-preserving edits
         # that must be applied to host + guest together.
         host_row = self._app._rows.get("host")
         guest_row = self._app._rows.get("guest")
@@ -382,37 +400,7 @@ class MainPage(tk.Frame):
         if not host or not guest:
             messagebox.showwarning("Missing files", "Select both HOST and GUEST files first.")
             return
-        self._app.run_processing(host, guest, action="ALL")
-
-    # Created by Claude-4.5-Sonnet | 2026-01-08_03
-    def _normalize_audio_clicked(self) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
-        """Normalize guest audio levels to match host."""
-
-        # Normalization is defined relative to the host track, so both must exist.
-        host_row = self._app._rows.get("host")
-        guest_row = self._app._rows.get("guest")
-        host = host_row.path if host_row else None
-        guest = guest_row.path if guest_row else None
-        if not host or not guest:
-            messagebox.showwarning("Missing files", "Select both HOST and GUEST files first.")
-            return
-        self._app.run_processing(host, guest, action="NORMALIZE_GUEST_AUDIO")
-
-    # Created by Claude-4.5-Sonnet | 2026-01-08_03
-    def _remove_pauses_clicked(self) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
-        """Remove pauses longer than x seconds from both tracks."""
-
-        # Pause removal must trim both streams identically to preserve sync.
-        host_row = self._app._rows.get("host")
-        guest_row = self._app._rows.get("guest")
-        host = host_row.path if host_row else None
-        guest = guest_row.path if guest_row else None
-        if not host or not guest:
-            messagebox.showwarning("Missing files", "Select both HOST and GUEST files first.")
-            return
-        self._app.run_processing(host, guest, action="REMOVE_PAUSES")
+        self._app.run_processing(host, guest)
 
     # Created by Claude-4.5-Sonnet | 2026-01-08_03
     def _save_modified_clicked(self) -> None:

@@ -18,8 +18,8 @@ def test_main_preflights_normalize_lengths_for_guest_only_action(monkeypatch):
             calls["execute"] = (host, guest, kwargs)
             return "host_out.mp4", "guest_out.mp4"
 
-    def fake_build_pipeline(config: dict, action: str):
-        calls["build_pipeline"] = action
+    def fake_build_pipeline(config: dict):
+        calls["build_pipeline"] = True
         return _FakePipeline()
 
     monkeypatch.setattr(main_module, "normalize_video_lengths", fake_normalize_video_lengths)
@@ -33,8 +33,6 @@ def test_main_preflights_normalize_lengths_for_guest_only_action(monkeypatch):
             "H.mp4",
             "--guest",
             "G.mp4",
-            "--action",
-            "NORMALIZE_GUEST_AUDIO",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -58,7 +56,7 @@ def test_main_preflights_normalize_lengths_for_all_action(monkeypatch):
             calls["execute"] = (host, guest, kwargs)
             return "host_out.mp4", "guest_out.mp4"
 
-    def fake_build_pipeline(config: dict, action: str):
+    def fake_build_pipeline(config: dict):
         return _FakePipeline()
 
     monkeypatch.setattr(main_module, "normalize_video_lengths", fake_normalize_video_lengths)
@@ -72,8 +70,6 @@ def test_main_preflights_normalize_lengths_for_all_action(monkeypatch):
             "H.mp4",
             "--guest",
             "G.mp4",
-            "--action",
-            "ALL",
         ],
     )
     assert result.exit_code == 0, result.output

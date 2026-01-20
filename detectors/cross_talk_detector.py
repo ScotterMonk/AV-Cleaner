@@ -5,6 +5,8 @@ from analyzers.audio_envelope import calculate_db_envelope
 import numpy as np
 from typing import List, Tuple
 
+
+# Modified by gpt-5.2 | 2026-01-19_01
 class CrossTalkDetector(BaseDetector):
     """
     Detects pauses where BOTH speakers are silent simultaneously.
@@ -13,29 +15,47 @@ class CrossTalkDetector(BaseDetector):
     Critical for quality: Only removes awkward pauses, not natural turn-taking.
     """
     
+    # Modified by gpt-5.2 | 2026-01-19_01
     def detect(self, host_audio, guest_audio) -> List[Tuple[float, float]]:
         """
-        Detect mutual silence regions (both speakers silent) that exceed max_pause_duration.
-        
-        Returns only the EXCESS portion to remove (keeps max_pause_duration as natural pause).
-        
-        Example: 5-second pause with max_pause_duration=1.2s
+        Detect mutual silence regions (both speakers silent) that exceed `max_pause_duration`.
+
+        For each detected pause region (start..end), we *replace the entire pause* with a
+        fixed-length pause of `new_pause_duration` by removing only the *excess* beyond
+        `new_pause_duration`.
+
+        Example: 5-second pause with max_pause_duration=1.2s and new_pause_duration=0.5s
           - Detected: 0.0 to 5.0 (5s total)
-          - Returned: 1.2 to 5.0 (3.8s to remove, keeps 1.2s natural pause)
+          - Returned: 0.5 to 5.0 (4.5s to remove, keeps 0.5s replacement pause)
         
         Handles edge cases:
         - Cross-talk: One speaks while other listens → KEEP
         - Turn-taking: Natural back-and-forth → KEEP
         - True pause: Both silent > max_pause_duration → REMOVE EXCESS
         """
-        from utils.logger import get_logger, format_time_cut
+        from utils.logger import format_time_cut, get_logger
         logger = get_logger(__name__)
-        
-        threshold_db = self.config.get('silence_threshold_db', -45)
-        min_duration = self.config.get('max_pause_duration', 2.5)
-        window_ms = self.config.get('silence_window_ms', 100)
-        
-        logger.info(f"CrossTalkDetector config: threshold={threshold_db}dB, max_pause_duration={min_duration}s, window={window_ms}ms")
+
+        threshold_db = self.config.get("silence_threshold_db", -45)
+        max_pause_duration = self.config.get("max_pause_duration", 2.5)
+        new_pause_duration = self.config.get("new_pause_duration", 0.5)
+        window_ms = self.config.get("silence_window_ms", 100)
+
+        # Safety clamps:
+        # - new_pause_duration cannot be negative.
+        # - If new_pause_duration is longer than the detected pause, we remove nothing.
+        try:
+            new_pause_duration = max(0.0, float(new_pause_duration))
+        except (TypeError, ValueError):
+            new_pause_duration = 0.5
+
+        logger.info(
+            "CrossTalkDetector config: threshold=%sdB, max_pause_duration=%ss, new_pause_duration=%ss, window=%sms",
+            threshold_db,
+            max_pause_duration,
+            new_pause_duration,
+            window_ms,
+        )
         
         # Step 1: Calculate dB envelopes for both tracks
         host_db = calculate_db_envelope(host_audio, window_ms)
@@ -64,27 +84,39 @@ class CrossTalkDetector(BaseDetector):
         # Step 4: Find continuous mutual silence regions
         mutual_silence_regions = self._find_continuous_regions(
             mutual_silence,
-            min_duration,
+            max_pause_duration,
             host_audio.frame_rate,
             window_ms
         )
         
-        # Step 5: Verify each region and trim to keep only max_pause_duration
+        # Step 5: Verify each region and remove only the portion beyond new_pause_duration
         verified_regions = []
         for start, end in mutual_silence_regions:
             if self._verify_mutual_silence(
                 host_audio, guest_audio, start, end, threshold_db
             ):
-                # Only remove the EXCESS beyond max_pause_duration
-                # Example: 5s pause with max_duration=1.2s → remove 1.2s to 5.0s (keep first 1.2s)
-                trimmed_start = start + min_duration
+                # Replace the entire pause with `new_pause_duration`.
+                # That means we keep the first `new_pause_duration` seconds of the pause and
+                # remove the remaining portion.
+                keep_len = min(new_pause_duration, max(0.0, end - start))
+                trimmed_start = start + keep_len
                 if trimmed_start < end:
                     verified_regions.append((trimmed_start, end))
-                    logger.debug(f"Detected pause {start:.2f}s to {end:.2f}s (duration={(end-start):.2f}s) → removing {trimmed_start:.2f}s to {end:.2f}s (excess={(end-trimmed_start):.2f}s)")
+                    logger.debug(
+                        "Detected pause %.2fs to %.2fs (duration=%.2fs) -> removing %.2fs to %.2fs (excess=%.2fs)",
+                        start,
+                        end,
+                        (end - start),
+                        trimmed_start,
+                        end,
+                        (end - trimmed_start),
+                    )
         
         total_seconds = sum(end - start for start, end in verified_regions)
         logger.info(
-            f"[DETECTOR] Found {len(verified_regions)} pauses (total duration: {format_time_cut(total_seconds)} to remove)"
+            "[DETECTOR] Found %s pauses (total duration: %s to remove)",
+            len(verified_regions),
+            format_time_cut(total_seconds),
         )
         return verified_regions
 

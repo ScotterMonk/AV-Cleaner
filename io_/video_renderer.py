@@ -390,28 +390,58 @@ def render_project(host_path, guest_path, manifest, out_host, out_guest, config)
         inp = ffmpeg.input(input_path, **input_kwargs)
         v = inp.video
         a = inp.audio
+
+        # Debug aid: ffmpeg-python requires explicit split/asplit when a filtered stream fans out.
+        # This becomes relevant when we apply audio filters and then create multiple atrim branches.
+        try:
+            filter_names = [getattr(f, "filter_name", str(f)) for f in (filters or [])]
+        except Exception:
+            filter_names = ["<unprintable>"]
+        logger.debug(
+            "build_chain(%s): keep_segments=%s audio_filters=%s",
+            os.path.basename(str(input_path)),
+            len(keep_segments or []),
+            filter_names,
+        )
         
         # 1. Apply Audio Filters (Normalization, etc.)
         for f in filters:
             a = a.filter(f.filter_name, **f.params)
-            
+             
         # 2. Apply Cutting (Trimming)
         if keep_segments:
             segments_v = []
             segments_a = []
-            for start, end in keep_segments:
+
+            # IMPORTANT:
+            # If there are multiple segments, we will create multiple atrim chains.
+            # When `a` is the output of an audio filter (e.g., alimiter), ffmpeg-python
+            # will throw a graph error unless we insert an `asplit`.
+            audio_inputs = None
+            if len(keep_segments) > 1 and (filters or []):
+                logger.debug(
+                    "build_chain(%s): inserting asplit(outputs=%s) before per-segment atrim",
+                    os.path.basename(str(input_path)),
+                    len(keep_segments),
+                )
+                # NOTE: don't call list() on the FilterNode; that can behave like an unbounded iterator.
+                split_node = a.filter_multi_output("asplit", outputs=len(keep_segments))
+                audio_inputs = [split_node.stream(i) for i in range(len(keep_segments))]
+
+            for idx, (start, end) in enumerate(keep_segments):
                 # Video Trim (Reset PTS to start at 0 relative to segment)
                 seg_v = v.trim(start=start, end=end).setpts("PTS-STARTPTS")
                 segments_v.append(seg_v)
-                
+                 
                 # Audio Trim (Must match exactly)
-                seg_a = a.filter_("atrim", start=start, end=end).filter_("asetpts", "PTS-STARTPTS")
+                a_in = audio_inputs[idx] if audio_inputs is not None else a
+                seg_a = a_in.filter_("atrim", start=start, end=end).filter_("asetpts", "PTS-STARTPTS")
                 segments_a.append(seg_a)
-                
+                 
             # Concatenate all segments
             v = ffmpeg.concat(*segments_v, v=1, a=0).node[0]
             a = ffmpeg.concat(*segments_a, v=0, a=1).node[0]
-            
+             
         return v, a
 
     if not out_host and not out_guest:

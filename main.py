@@ -1,5 +1,6 @@
 # main.py
 
+import logging
 import os
 import sys
 import time
@@ -13,18 +14,12 @@ from core.pipeline import ProcessingPipeline
 from detectors.cross_talk_detector import CrossTalkDetector
 from detectors.spike_fixer_detector import SpikeFixerDetector
 from io_.media_preflight import normalize_video_lengths
+from io_.media_probe import get_video_duration_seconds
 from processors.spike_fixer import SpikeFixer
 from processors.audio_normalizer import AudioNormalizer
 from processors.segment_remover import SegmentRemover
 from config import QUALITY_PRESETS, PIPELINE_CONFIG
-from utils.logger import format_duration, setup_logger
-
-
-_ACTION_CHOICES = [
-    "ALL",
-    "NORMALIZE_GUEST_AUDIO",
-    "REMOVE_PAUSES",
-]
+from utils.logger import format_duration, format_time_cut, setup_logger
 
 
 _PROCESSOR_REGISTRY = {
@@ -65,53 +60,42 @@ def _register_required_detectors(pipeline: ProcessingPipeline) -> None:
         pipeline.add_detector(SpikeFixerDetector(pipeline.config))
 
 
-def _build_pipeline(config: dict, action: str) -> ProcessingPipeline:
+def _build_pipeline(config: dict) -> ProcessingPipeline:
     pipeline = ProcessingPipeline(config)
-
-    if action == "NORMALIZE_GUEST_AUDIO":
-        # Normalization runs by analyzing host+guest loudness.
-        pipeline.add_processor(AudioNormalizer(config))
-
-        # If SpikeFixer is enabled in PIPELINE_CONFIG, include it in this workflow.
-        # (SpikeFixer requires SpikeFixerDetector outputs.)
-        if _pipeline_component_enabled("processors", "SpikeFixer"):
-            pipeline.add_detector(SpikeFixerDetector(config))
-            pipeline.add_processor(SpikeFixer(config))
-        return pipeline
-
-    if action == "REMOVE_PAUSES":
-        # Pause removal is mutual-silence detection + manifest keep_segments.
-        pipeline.add_detector(CrossTalkDetector(config))
-        pipeline.add_processor(SegmentRemover(config))
-        return pipeline
-
-    if action != "ALL":
-        raise click.ClickException(f"Unknown action: {action!r}")
-
     _register_enabled_processors(pipeline, config)
     _register_required_detectors(pipeline)
     return pipeline
 
-@click.command()
-@click.option('--host', required=True, help='Host video path')
-@click.option('--guest', required=True, help='Guest video path')
-@click.option('--action', type=click.Choice(_ACTION_CHOICES), default='ALL', show_default=True,
-              help='Which action to run')
-@click.option('--norm-mode', type=click.Choice(['MATCH_HOST', 'STANDARD_LUFS']), 
-              help='Override normalization mode')
-def main(host, guest, action, norm_mode):
+
+def _run_process(host: str, guest: str, norm_mode: str | None, action: str | None) -> None:
     """
     Video Automation Tool: Sync-safe cleaning and normalization.
     """
+    from pathlib import Path
+    from utils.progress_log import ProgressLogHandler, progress_log_path
+    
+    # Initialize logger with progress log handler
     logger = setup_logger()
-    action_start_time = time.time()
-    logger.info(f"[ACTION START] {action}")
+    
+    # Add progress log handler to capture all PROGRESS pane lines
+    project_dir = Path(host).resolve().parent
+    log_path = progress_log_path(project_dir)
+    progress_handler = ProgressLogHandler(log_path)
+    progress_handler.setFormatter(logging.Formatter("%(message)s"))
+    logging.getLogger("video_trimmer").addHandler(progress_handler)
+    
+    run_start_time = time.time()
+    logger.info("[RUN START] FULL_PIPELINE")
 
-    subfunction_name = None
-    if action == "NORMALIZE_GUEST_AUDIO":
-        subfunction_name = "Normalize Guest Audio"
-    elif action == "REMOVE_PAUSES":
-        subfunction_name = "Remove pauses"
+    # Preserve user-selected inputs for reporting, even if preflight normalizes to new paths.
+    original_host = host
+    original_guest = guest
+
+    # Backwards-compat CLI flag: older docs/scripts used --action ALL.
+    if action not in (None, 'ALL'):
+        raise click.ClickException(
+            "Only --action ALL is supported (the action concept has been removed)."
+        )
 
     # Preflight: ensure host+guest durations are aligned for all actions (even guest-only).
     host, guest = normalize_video_lengths(host, guest)
@@ -122,33 +106,94 @@ def main(host, guest, action, norm_mode):
         config['normalization']['mode'] = norm_mode
 
     # Init Pipeline
-    pipeline = _build_pipeline(config, action)
+    pipeline = _build_pipeline(config)
  
     # Run
     try:
         # Always render both host+guest outputs so the GUI/CLI can reliably switch to
         # a stable processed pair after any action (even guest-only workflows).
-        if subfunction_name:
-            logger.info(f"[SUBFUNCTION START] {subfunction_name}")
-
         h_out, g_out = pipeline.execute(host, guest)
-
-        if subfunction_name:
-            logger.info(f"[SUBFUNCTION COMPLETE] {subfunction_name}")
 
         created = [p for p in [h_out, g_out] if p]
 
-        action_duration = time.time() - action_start_time
+        def _probe_duration_label(path: str | None) -> str:
+            if not path:
+                return "N/A"
+            try:
+                return format_time_cut(get_video_duration_seconds(path))
+            except Exception:
+                return "N/A"
+
         logger.info(
-            f"[ACTION COMPLETE] {action} - Duration: {format_duration(action_duration)}"
+            "[RUN SUMMARY] ORIGINAL FILES - Host length: %s, Guest length: %s",
+            _probe_duration_label(original_host),
+            _probe_duration_label(original_guest),
         )
+        logger.info(
+            "[RUN SUMMARY] PROCESSED FILES - Host length: %s, Guest length: %s",
+            _probe_duration_label(h_out),
+            _probe_duration_label(g_out),
+        )
+
+        action_duration = time.time() - run_start_time
+        logger.info(f"[RUN COMPLETE] FULL_PIPELINE - Duration: {format_duration(action_duration)}")
 
         logger.info("Success! Files created:\n" + "\n".join(created))
     except Exception as e:
-        if subfunction_name:
-            logger.info(f"[SUBFUNCTION FAILED] {subfunction_name}")
         logger.error(f"Processing failed: {str(e)}")
         raise
 
+
+@click.group(invoke_without_command=True)
+@click.option('--host', required=False, help='Host video path')
+@click.option('--guest', required=False, help='Guest video path')
+@click.option(
+    '--action',
+    type=click.Choice(['ALL']),
+    default=None,
+    help='(Deprecated) Old interface. Only ALL is supported.',
+)
+@click.option(
+    '--norm-mode',
+    type=click.Choice(['MATCH_HOST', 'STANDARD_LUFS']),
+    help='Override normalization mode',
+)
+@click.pass_context
+def cli(ctx: click.Context, host: str | None, guest: str | None, action: str | None, norm_mode: str | None):
+    """Video Automation Tool: Sync-safe cleaning and normalization."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    if not host or not guest:
+        raise click.UsageError(
+            "Missing required options: --host and --guest. Try: main.py process --help"
+        )
+
+    _run_process(host=host, guest=guest, norm_mode=norm_mode, action=action)
+
+
+# Backwards-compatible entry point used by older tests/scripts.
+# (Click commands are regular callables; `CliRunner.invoke()` can target this.)
+main = cli
+
+
+@cli.command(name='process')
+@click.option('--host', required=True, help='Host video path')
+@click.option('--guest', required=True, help='Guest video path')
+@click.option(
+    '--action',
+    type=click.Choice(['ALL']),
+    default=None,
+    help='(Deprecated) Old interface. Only ALL is supported.',
+)
+@click.option(
+    '--norm-mode',
+    type=click.Choice(['MATCH_HOST', 'STANDARD_LUFS']),
+    help='Override normalization mode',
+)
+def process(host: str, guest: str, action: str | None, norm_mode: str | None):
+    """Run the full processing pipeline."""
+    _run_process(host=host, guest=guest, norm_mode=norm_mode, action=action)
+
 if __name__ == '__main__':
-    main()
+    cli()
