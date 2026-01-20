@@ -19,26 +19,32 @@ class AudioNormalizer(BaseProcessor):
         if mode == 'MATCH_HOST':
             # Target is Host's level
             diff = host_lufs - guest_lufs
-            
+             
             # Apply safety clamp
             gain_to_apply = min(diff, config.get('max_gain_db', 15.0))
 
             logger.info(f"[PROCESSOR] Normalized guest audio - Applied {gain_to_apply:+.1f} dB gain to match host")
-            
+
+            # Used by the pipeline for end-of-subfunction summary logging.
+            manifest.guest_audio_gain_db_applied = float(gain_to_apply)
+             
             # Add filter instructions
             # Host gets NO filter (it is the reference)
             # Guest gets volume filter
             manifest.add_guest_filter('volume', volume=f"{gain_to_apply}dB")
-            
+             
         elif mode == 'STANDARD_LUFS':
             target = config.get('standard_target', -16.0)
 
             logger.info(f"[PROCESSOR] Normalized both tracks - Target: {target} LUFS (STANDARD_LUFS mode)")
-            
+
+            # Loudnorm is dynamic; keep an estimate for summary logging.
+            manifest.guest_audio_gain_db_estimate = float(target - guest_lufs)
+             
             # Use FFmpeg's loudnorm for professional correction on BOTH
             manifest.add_host_filter('loudnorm', I=target, TP=-1.5, LRA=11)
             manifest.add_guest_filter('loudnorm', I=target, TP=-1.5, LRA=11)
-            
+             
         return manifest
     
     def get_name(self): return "AudioNormalizer"

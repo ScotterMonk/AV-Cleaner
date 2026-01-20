@@ -64,21 +64,44 @@ class ProcessingPipeline:
             # Mirror user-facing subfunction start/end markers.
             # These are used by the GUI PROGRESS pane to show an action-style timeline.
             friendly = None
+            completion_details = None
+            
             if processor_name == "AudioNormalizer":
                 friendly = "Normalize Guest Audio"
             elif processor_name == "SegmentRemover":
                 friendly = "Remove pauses"
             elif processor_name == "SpikeFixer":
-                spike_regions = detection_results.get("spike_fixer_detector", []) or []
-                friendly = f"Remove {len(spike_regions)} audio spikes in guest video"
+                # Keep user-facing title stable; report spike count after completion.
+                friendly = "Remove audio spikes"
 
             if friendly:
                 logger.info(f"[SUBFUNCTION START] {friendly}")
 
             manifest = processor.process(manifest, host_audio, guest_audio, detection_results)
 
+            # Log [SUBFUNCTION COMPLETE] first
             if friendly:
                 logger.info(f"[SUBFUNCTION COMPLETE] {friendly}")
+
+            # Then log details on separate line immediately after with [DETAIL] token for PROGRESS pane
+            if processor_name == "SegmentRemover":
+                from utils.logger import format_time_cut
+                removals = getattr(manifest, "pause_removals", []) or []
+                total_removed_seconds = sum(end - start for start, end in removals)
+                logger.info(
+                    f"[DETAIL] Removed {len(removals)} pause(s) from both Guest and Host videos | "
+                    f"Total time removed: {format_time_cut(total_removed_seconds)}"
+                )
+            elif processor_name == "AudioNormalizer":
+                gain_db = getattr(manifest, "guest_audio_gain_db_applied", None)
+                gain_est_db = getattr(manifest, "guest_audio_gain_db_estimate", None)
+                if gain_db is not None:
+                    logger.info(f"[DETAIL] Guest audio adjusted: {gain_db:+.1f} dB")
+                elif gain_est_db is not None:
+                    logger.info(f"[DETAIL] Guest audio adjusted (estimated): {gain_est_db:+.1f} dB")
+            elif processor_name == "SpikeFixer":
+                spike_regions = detection_results.get("spike_fixer_detector", []) or []
+                logger.info(f"[DETAIL] Fixed {len(spike_regions)} audio spike(s) in guest video")
 
         phase2_duration = time.time() - phase2_start
         logger.info(f"Phase 2 complete - Duration: {format_duration(phase2_duration)}")
@@ -99,19 +122,5 @@ class ProcessingPipeline:
 
         phase3_duration = time.time() - phase3_start
         logger.info(f"Phase 3 complete - Duration: {format_duration(phase3_duration)}")
-
-        # Pause-removal summary + optional log file.
-        if getattr(manifest, "pause_removal_applied", False):
-            from utils.pause_removal_log import pause_removal_log_write
-
-            removed_count = len(getattr(manifest, "pause_removals", []) or [])
-            logger.info(f"{removed_count} pauses removed")
-
-            # Only save a log file when at least one pause was removed.
-            if removed_count > 0:
-                project_dir = Path(host_video_path).resolve().parent
-                log_path = pause_removal_log_write(project_dir, manifest.pause_removals)
-                if log_path:
-                    logger.info(f"Pause removal log saved: {log_path}")
         
         return host_out, guest_out

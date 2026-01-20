@@ -25,14 +25,16 @@ def test_make_processed_output_path_uses_mp4_even_for_non_mp4_input() -> None:
 
 def test_make_processed_output_path_does_not_double_append_processed_suffix() -> None:
     inp = str(Path("nested") / "video_processed.mp4")
-    assert make_processed_output_path(inp) == inp
+    outp = make_processed_output_path(inp)
+    assert outp != inp
+    assert Path(outp).name == "video_processed_rerun.mp4"
 
 
 def test_make_processed_output_path_stability_comprehensive() -> None:
-    """Test that inputs already ending with _processed remain unchanged (stability).
-    
-    This prevents "_processed_processed" naming chains when re-processing files.
-    Note: When stable, the original extension is preserved (not converted to .mp4).
+    """Inputs already ending with _processed should not be overwritten.
+
+    Instead of returning the same path, we force a new output name so the user's
+    selected input is never the render target.
     """
     cases = [
         # Simple case
@@ -53,7 +55,7 @@ def test_make_processed_output_path_stability_comprehensive() -> None:
 
     for inp in cases:
         result = make_processed_output_path(inp)
-        assert result == inp, f"Expected {inp} to remain unchanged, got {result}"
+        assert result != inp, f"Expected {inp} to produce a new output path, got input"
 
 
 def test_make_fixed_output_path_preserves_extension() -> None:

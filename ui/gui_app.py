@@ -32,6 +32,8 @@ def _should_mirror_to_progress(line: str) -> bool:
             "[SUBFUNCTION FAILED]",
             "[PREFLIGHT START]",
             "[PREFLIGHT COMPLETE]",
+            "[RUN SUMMARY]",
+            "[DETAIL]",
         )
     )
 

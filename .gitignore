@@ -22,3 +22,7 @@ notes/
 temp/
 *.af
 *.afphoto
+
+# Local test media artifacts (do not commit large/binary files)
+test_videos/*.mp4
+test_videos/*_processed.mp4

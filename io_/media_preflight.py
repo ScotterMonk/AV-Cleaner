@@ -33,19 +33,16 @@ class _NormalizePlan:
 
 
 def _safe_processed_output_path(input_path: str) -> str:
-    """Return a stable processed output path, never equal to the input path.
+    """Return a processed output path that is never equal to the input path.
 
-    Task 04 will refine `make_processed_output_path()` to avoid `_processed_processed`.
-    Until then, this helper prevents accidental overwrite if we get a pathological
-    `input_path` that already equals the processed path.
+    Defense-in-depth: even if `make_processed_output_path()` is changed or monkeypatched
+    (unit tests), we still must not select the input path as our output target.
     """
 
     outp = make_processed_output_path(input_path)
     if outp != input_path:
         return outp
 
-    # Pathological case (e.g., input already ends in `_processed.mp4`).
-    # Do NOT overwrite the input; fall back to a different suffix.
     logger.warning(
         "Processed output path equals input; using a fallback suffix to avoid overwriting: %s",
         input_path,

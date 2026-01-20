@@ -3,7 +3,6 @@
 This file provides guidance to agents when working with code in this repository.
 
 ## Commands (non-standard flags)
-- Run tests from project root: `pytest` (NOT from tests/ subdirectory; imports require root context)
 - Override normalization: `python main.py --host ... --guest ... --norm-mode MATCH_HOST|STANDARD_LUFS`
 
 --- do not remove this ---
@@ -14,6 +13,7 @@ This file provides guidance to agents when working with code in this repository.
 --- do not remove this ---
 
 ## Critical Non-Obvious Gotchas
+- **Build/Run tests** in/from `{base folder}/tests/`.
 - **Sync**
     - **Keep guest's video in sync with guest's audio**.
     - **Keep host's video in sync with host's audio**.
