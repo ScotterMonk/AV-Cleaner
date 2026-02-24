@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import click
 
 from core.pipeline import ProcessingPipeline
+from detectors.audio_level_detector import AudioLevelDetector
 from detectors.cross_talk_detector import CrossTalkDetector
 from detectors.spike_fixer_detector import SpikeFixerDetector
 from io_.media_preflight import normalize_video_lengths
@@ -51,13 +52,34 @@ def _register_enabled_processors(pipeline: ProcessingPipeline, config: dict) -> 
 
 def _register_required_detectors(pipeline: ProcessingPipeline) -> None:
     """Add detectors implied by enabled processors (not user-facing)."""
-    # SegmentRemover requires mutual-silence detection.
-    if _pipeline_component_enabled("processors", "SegmentRemover"):
-        pipeline.add_detector(CrossTalkDetector(pipeline.config))
+    logger = logging.getLogger("video_trimmer")
+    detector_order: list[str] = []
+
+    # Detector registration order matters for analysis/processing dependencies.
+    # Required order (when enabled): AudioLevelDetector -> SpikeFixerDetector -> other detectors
+
+    # AudioNormalizer needs per-frame audio level analysis (for normalization decisions).
+    if _pipeline_component_enabled("processors", "AudioNormalizer"):
+        pipeline.add_detector(AudioLevelDetector(pipeline.config))
+        detector_order.append("AudioLevelDetector")
 
     # SpikeFixer requires spike detection.
     if _pipeline_component_enabled("processors", "SpikeFixer"):
         pipeline.add_detector(SpikeFixerDetector(pipeline.config))
+        detector_order.append("SpikeFixerDetector")
+
+    # SegmentRemover requires mutual-silence detection.
+    if _pipeline_component_enabled("processors", "SegmentRemover"):
+        pipeline.add_detector(CrossTalkDetector(pipeline.config))
+        detector_order.append("CrossTalkDetector")
+
+    if detector_order:
+        logger.info(
+            "[PIPELINE] Required detectors registered (in order): %s",
+            " -> ".join(detector_order),
+        )
+    else:
+        logger.info("[PIPELINE] No required detectors registered.")
 
 
 def _build_pipeline(config: dict) -> ProcessingPipeline:
