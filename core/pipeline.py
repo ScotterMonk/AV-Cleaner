@@ -1,5 +1,6 @@
 # core/pipeline.py
 
+import inspect
 import time
 
 from .interfaces import EditManifest
@@ -42,10 +43,48 @@ class ProcessingPipeline:
         guest_audio = audio_extractor.extract_audio(guest_video_path)
          
         # 2. Run Detectors (Generate Detection Results)
-        detection_results = {}
-        for detector in self.detectors:
-            logger.info(f"Running {detector.get_name()}...")
-            detection_results[detector.get_name()] = detector.detect(host_audio, guest_audio)
+        detection_results = {
+            # Detectors can depend on input paths (ex: SpikeFixerDetector FFmpeg analysis).
+            "host_video_path": host_video_path,
+            "guest_video_path": guest_video_path,
+        }
+
+        detector_names = [d.get_name() for d in self.detectors]
+        logger.info("[DETECTOR] Execution order: %s", " -> ".join(detector_names) if detector_names else "(none)")
+
+        for idx, detector in enumerate(self.detectors):
+            detector_name = detector.get_name()
+            logger.info("Running %s (%s/%s)...", detector_name, idx + 1, len(self.detectors))
+
+            # Dependency/ordering logging: what is available to this detector right now.
+            available_keys = sorted(detection_results.keys())
+            logger.debug(
+                "[DETECTOR] %s starting; available prior results: %s",
+                detector_name,
+                ", ".join(available_keys) if available_keys else "(none)",
+            )
+
+            # Pass accumulated detection_results when the detector supports it.
+            supports_detection_results = False
+            try:
+                sig = inspect.signature(detector.detect)
+                params = list(sig.parameters.values())
+                supports_detection_results = any(
+                    (p.kind == inspect.Parameter.VAR_KEYWORD) or (p.name == "detection_results")
+                    for p in params
+                )
+            except Exception:
+                # If introspection fails, stay conservative and call the legacy 2-arg signature.
+                supports_detection_results = False
+
+            if supports_detection_results:
+                logger.debug("[DETECTOR] %s will receive accumulated detection_results", detector_name)
+                result = detector.detect(host_audio, guest_audio, detection_results)
+            else:
+                logger.debug("[DETECTOR] %s does not accept detection_results (legacy signature)", detector_name)
+                result = detector.detect(host_audio, guest_audio)
+
+            detection_results[detector_name] = result
 
         from utils.logger import format_duration
 
