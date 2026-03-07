@@ -5,6 +5,8 @@ from analyzers.audio_envelope import calculate_db_envelope
 import numpy as np
 from typing import List, Tuple
 
+
+# Modified by gpt-5.2 | 2026-01-19_01
 class CrossTalkDetector(BaseDetector):
     """
     Detects pauses where BOTH speakers are silent simultaneously.
@@ -13,22 +15,63 @@ class CrossTalkDetector(BaseDetector):
     Critical for quality: Only removes awkward pauses, not natural turn-taking.
     """
     
+    # Modified by gpt-5.2 | 2026-01-19_01
     def detect(self, host_audio, guest_audio) -> List[Tuple[float, float]]:
         """
-        Detect mutual silence regions (both speakers silent).
+        Detect mutual silence regions (both speakers silent) that exceed `max_pause_duration`.
+
+        For each detected pause region (start..end), we *replace the entire pause* with a
+        fixed-length pause of `new_pause_duration` by removing only the *excess* beyond
+        `new_pause_duration`.
+
+        Example: 5-second pause with max_pause_duration=1.2s and new_pause_duration=0.5s
+          - Detected: 0.0 to 5.0 (5s total)
+          - Returned: 0.5 to 5.0 (4.5s to remove, keeps 0.5s replacement pause)
         
         Handles edge cases:
         - Cross-talk: One speaks while other listens → KEEP
-        - Turn-taking: Natural back-and-forth → KEEP  
-        - True pause: Both silent > threshold → REMOVE
+        - Turn-taking: Natural back-and-forth → KEEP
+        - True pause: Both silent > max_pause_duration → REMOVE EXCESS
         """
-        threshold_db = self.config.get('silence_threshold_db', -45)
-        min_duration = self.config.get('min_pause_duration', 2.5)
-        window_ms = self.config.get('silence_window_ms', 100)
+        from utils.logger import format_time_cut, get_logger
+        logger = get_logger(__name__)
+
+        threshold_db = self.config.get("silence_threshold_db", -45)
+        max_pause_duration = self.config.get("max_pause_duration", 2.5)
+        new_pause_duration = self.config.get("new_pause_duration", 0.5)
+        window_ms = self.config.get("silence_window_ms", 100)
+
+        # Safety clamps:
+        # - new_pause_duration cannot be negative.
+        # - If new_pause_duration is longer than the detected pause, we remove nothing.
+        try:
+            new_pause_duration = max(0.0, float(new_pause_duration))
+        except (TypeError, ValueError):
+            new_pause_duration = 0.5
+
+        logger.info(
+            "CrossTalkDetector config: threshold=%sdB, max_pause_duration=%ss, new_pause_duration=%ss, window=%sms",
+            threshold_db,
+            max_pause_duration,
+            new_pause_duration,
+            window_ms,
+        )
         
         # Step 1: Calculate dB envelopes for both tracks
         host_db = calculate_db_envelope(host_audio, window_ms)
         guest_db = calculate_db_envelope(guest_audio, window_ms)
+
+        # Step 1b: Align envelope lengths.
+        #
+        # Real-world extractions can differ by a few samples/windows due to container
+        # timestamps or rounding (even when the videos are meant to be synced).
+        # For mutual-silence detection, we prefer padding the *shorter* envelope with
+        # silence so the logical AND remains time-aligned with the longer track.
+        host_db, guest_db = self._pad_envelopes_to_equal_length(
+            host_db,
+            guest_db,
+            silence_db_floor=-200.0,
+        )
         
         # Step 2: Identify silent frames in each track
         host_silent = host_db < threshold_db
@@ -41,20 +84,75 @@ class CrossTalkDetector(BaseDetector):
         # Step 4: Find continuous mutual silence regions
         mutual_silence_regions = self._find_continuous_regions(
             mutual_silence,
-            min_duration,
+            max_pause_duration,
             host_audio.frame_rate,
             window_ms
         )
         
-        # Step 5: Verify each region (quality gate)
+        # Step 5: Verify each region and remove only the portion beyond new_pause_duration
         verified_regions = []
         for start, end in mutual_silence_regions:
             if self._verify_mutual_silence(
                 host_audio, guest_audio, start, end, threshold_db
             ):
-                verified_regions.append((start, end))
+                # Replace the entire pause with `new_pause_duration`.
+                # That means we keep the first `new_pause_duration` seconds of the pause and
+                # remove the remaining portion.
+                keep_len = min(new_pause_duration, max(0.0, end - start))
+                trimmed_start = start + keep_len
+                if trimmed_start < end:
+                    verified_regions.append((trimmed_start, end))
+                    logger.debug(
+                        "Detected pause %.2fs to %.2fs (duration=%.2fs) -> removing %.2fs to %.2fs (excess=%.2fs)",
+                        start,
+                        end,
+                        (end - start),
+                        trimmed_start,
+                        end,
+                        (end - trimmed_start),
+                    )
         
+        total_seconds = sum(end - start for start, end in verified_regions)
+        logger.info(
+            "[DETECTOR] Found %s pauses (total duration: %s to remove)",
+            len(verified_regions),
+            format_time_cut(total_seconds),
+        )
         return verified_regions
+
+    @staticmethod
+    def _pad_envelopes_to_equal_length(
+        host_db: np.ndarray,
+        guest_db: np.ndarray,
+        silence_db_floor: float = -200.0,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Pad the shorter dB envelope with silence so both arrays have equal length."""
+
+        host_len = int(host_db.shape[0])
+        guest_len = int(guest_db.shape[0])
+
+        if host_len == guest_len:
+            return host_db, guest_db
+
+        target_len = max(host_len, guest_len)
+
+        if host_len < target_len:
+            host_db = np.pad(
+                host_db,
+                (0, target_len - host_len),
+                mode="constant",
+                constant_values=silence_db_floor,
+            )
+
+        if guest_len < target_len:
+            guest_db = np.pad(
+                guest_db,
+                (0, target_len - guest_len),
+                mode="constant",
+                constant_values=silence_db_floor,
+            )
+
+        return host_db, guest_db
     
     def _find_continuous_regions(self, mask, min_duration, sample_rate, window_ms):
         """Find continuous True regions in boolean mask"""

@@ -4,6 +4,13 @@ from .base_processor import BaseProcessor
 from core.interfaces import EditManifest
 from typing import List, Tuple
 
+from utils.logger import get_logger
+from utils.logger import format_time_cut
+from utils.pause_removal_log import pause_removal_log_line
+
+
+logger = get_logger(__name__)
+
 class SegmentRemover(BaseProcessor):
     """
     Translates detected 'silence/bad' segments into 'keep/good' segments
@@ -14,22 +21,38 @@ class SegmentRemover(BaseProcessor):
         # 1. Get the list of "Bad" segments (Pauses/Cross-talk)
         # These are the times we want to REMOVE.
         pauses = detection_results.get('cross_talk_detector', [])
+
+        # Mark that pause-removal was part of this run.
+        manifest.pause_removal_applied = True
         
         # If no pauses detected, we keep the whole file.
         if not pauses:
             return manifest
+
+        # Keep a copy for end-of-run summary + optional file log.
+        sorted_removals = sorted(pauses, key=lambda x: x[0])
+        manifest.pause_removals = list(sorted_removals)
+
+        # Log each removal in original timeline.
+        for start_s, end_s in sorted_removals:
+            logger.info(pause_removal_log_line(start_s, end_s))
             
         # 2. Get total duration from the host audio
         # (Assuming host/guest are synchronized and roughly same length)
         total_duration = host_audio.duration_seconds
         
         # 3. Calculate the "Inverse" (The segments to KEEP)
-        keep_segments = self._invert_segments(pauses, total_duration)
+        keep_segments = self._invert_segments(sorted_removals, total_duration)
         
         # 4. Update the Manifest
         # The Renderer will look at this list to generate FFmpeg trim commands
         manifest.keep_segments = keep_segments
-        
+
+        total_removed_seconds = sum(end - start for start, end in sorted_removals)
+        logger.info(
+            f"[PROCESSOR COMPLETE] Cut {len(sorted_removals)} pauses from both videos (sync-safe) - Total time cut: {format_time_cut(total_removed_seconds)}"
+        )
+         
         return manifest
 
     def _invert_segments(self, remove_segments: List[Tuple[float, float]], total_duration: float) -> List[Tuple[float, float]]:
