@@ -1,7 +1,8 @@
 # detectors/base_detector.py
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Dict, Any
+from typing import Any, Dict
+
 
 class BaseDetector(ABC):
     """
@@ -10,23 +11,27 @@ class BaseDetector(ABC):
     """
     
     def __init__(self, config: Dict[str, Any]):
+        # Modified by gpt-5.2 | 2026-01-20_01
         """
         Initialize with the full configuration dictionary.
         """
         self.config = config
 
     @abstractmethod
-    def detect(self, host_audio, guest_audio) -> List[Tuple[float, float]]:
+    def detect(self, host_audio, guest_audio) -> Any:
+        # Modified by gpt-5.2 | 2026-01-20_01
         """
-        Analyze audio and return a list of timestamps.
+        Analyze audio and return detector-specific results.
+
+        Most detectors return a list of (start_time, end_time) tuples in seconds.
+        Some detectors may return structured dict-like analysis results.
         
         Args:
             host_audio: Pydub AudioSegment for the host track
             guest_audio: Pydub AudioSegment for the guest track
             
         Returns:
-            List of (start_time, end_time) tuples in seconds.
-            Example: [(0.5, 2.1), (10.0, 12.5)]
+            Detector-specific result.
         """
         pass
     

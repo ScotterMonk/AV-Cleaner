@@ -1,25 +1,138 @@
-# detectors/spike_fixer_detector.py
+"""SpikeFixerDetector.
 
-from .base_detector import BaseDetector
-from typing import List, Tuple
+Detects whether the guest track contains peaks above `spike_threshold_db`.
+
+Performance note (normalize-before-spike-detect / P3-T15):
+ - This detector may run an FFmpeg *analysis pass* (audio-only) to evaluate peak levels
+   *after* normalization. That extra pass adds time, but improves accuracy because the
+   limiter decision is based on the same post-normalization signal that will be rendered.
+ - Pydub extraction is still performed for other detectors/processors, so this does not
+   remove the cost of extracting audio from the input media.
+ - The FFmpeg filter parameters used for analysis MUST exactly match the render-time
+   normalization filters; otherwise, the analyzed peak levels may not match what is
+   actually rendered.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
+
+from utils.logger import get_logger
+
+from .base_detector import BaseDetector
 
 class SpikeFixerDetector(BaseDetector):
     """
     Detects audio spikes (peaks) above threshold.
     Used to identify segments that need limiting/compression.
+
+    FFmpeg analysis tradeoff:
+        We may run an additional FFmpeg pass to analyze peaks *post-normalization*.
+        This makes spike detection slower, but more accurate than pre-normalization
+        peak detection when normalization can increase peak levels.
+
+        Keep analysis and render filter params in lockstep. Any divergence between the
+        analysis filter chain and the render-time filter chain will produce misleading
+        results.
     """
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_02
+    _FFMPEG_ANALYSIS_CACHE_MAX_ITEMS = 8
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_02
+    _FFMPEG_ANALYSIS_CACHE_TTL_SECONDS = 60.0
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_02
+    _ffmpeg_analysis_cache: Dict[Tuple[str, str, str, int, int], Tuple[float, List[float]]] = {}
     
-    # Modified by gpt-5.2 | 2026-01-09_02
-    def detect(self, host_audio, guest_audio) -> List[Tuple[float, float]]:
-        """Detect audio spikes in guest audio only."""
+    # [Modified] by gpt-5.2 | 2026-01-20_01
+    def detect(self, host_audio, guest_audio, detection_results: Dict[str, Any] | None = None) -> List[Tuple[float, float]]:
+        """Detect audio spikes in guest audio.
+
+        Args:
+            host_audio: Pydub AudioSegment for host.
+            guest_audio: Pydub AudioSegment for guest.
+            detection_results: Optional accumulated detector results. When
+                `detection_results["audio_level_detector"]` is present, we attempt an
+                FFmpeg post-normalization analysis pass.
+
+        Notes:
+            - The FFmpeg analysis pass adds time, but improves accuracy because it
+              mirrors render-time normalization.
+            - Pydub extraction is still needed elsewhere in the pipeline.
+            - Analysis filter params MUST exactly match render filter params.
+        """
+
+        logger = get_logger(__name__)
+        threshold_db = float((self.config or {}).get("spike_threshold_db", -6))
+
+        audio_level = (detection_results or {}).get("audio_level_detector")
+        if not audio_level:
+            logger.warning(
+                "[DETECTOR] SpikeFixerDetector: audio_level_detector results missing; "
+                "falling back to pre-normalization spike detection"
+            )
+            return self._detect_pre_normalization(host_audio, guest_audio)
+
+        guest_video_path = self._guest_video_path_from_detection_results(detection_results or {})
+        if not guest_video_path:
+            logger.warning(
+                "[DETECTOR] SpikeFixerDetector: guest video path missing in detection_results; "
+                "falling back to pre-normalization spike detection"
+            )
+            return self._detect_pre_normalization(host_audio, guest_audio)
+
+        try:
+            peak_series_db = self._detect_post_normalization_peak_series_db(guest_video_path, audio_level)
+        except Exception as e:
+            logger.warning(
+                "[DETECTOR] SpikeFixerDetector: FFmpeg post-normalization analysis failed; "
+                "falling back to pre-normalization spike detection (%s)",
+                e,
+            )
+            logger.debug("SpikeFixerDetector FFmpeg analysis exception", exc_info=True)
+            return self._detect_pre_normalization(host_audio, guest_audio)
+
+        duration_seconds = float(getattr(guest_audio, "duration_seconds", 0.0) or 0.0)
+        spike_regions = self._spike_regions_from_peak_series(
+            peak_series_db,
+            reset_seconds=1.0,
+            duration_seconds=duration_seconds,
+            threshold_db=threshold_db,
+        )
+
+        if spike_regions:
+            logger.info(
+                "[DETECTOR] SpikeFixerDetector post-normalization analysis: found %s spike region(s)",
+                len(spike_regions),
+            )
+        else:
+            max_peak_db = max(peak_series_db) if peak_series_db else float("-inf")
+            logger.info(
+                "[DETECTOR] SpikeFixerDetector post-normalization analysis: no spikes (max_peak_db=%.2f threshold_db=%.2f)",
+                max_peak_db,
+                threshold_db,
+            )
+
+        return spike_regions
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_01
+    def _detect_pre_normalization(self, host_audio, guest_audio) -> List[Tuple[float, float]]:
+        """Original pydub/numpy spike detector (pre-normalization)."""
+
+        logger = get_logger(__name__)
 
         # Only analyze guest audio for spikes.
         audio = guest_audio
 
-        threshold_db = self.config.get("spike_threshold_db", -6)
-        window_ms = self.config.get("spike_window_ms", 50)
+        threshold_db = float((self.config or {}).get("spike_threshold_db", -6))
+        window_ms = float((self.config or {}).get("spike_window_ms", 50))
 
         # IMPORTANT: frame-accurate windowing for mono/stereo.
         # - Convert window_ms -> window_frames using frame_rate.
@@ -47,10 +160,247 @@ class SpikeFixerDetector(BaseDetector):
             for window_idx in spike_window_idxs
         ]
 
-        # Merge adjacent spikes
         merged = self._merge_adjacent_regions(spike_regions, gap_threshold=0.1)
-
+        logger.info("[DETECTOR] Found %s audio spike regions in guest video", len(merged))
         return merged
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_01
+    @staticmethod
+    def _guest_video_path_from_detection_results(detection_results: Dict[str, Any]) -> str | None:
+        """Best-effort lookup for guest input path.
+
+        T07 will pass `detection_results` into detectors; this function is tolerant
+        to a variety of possible shapes.
+        """
+
+        # Direct keys
+        for k in ("guest_video_path", "guest_path", "_guest_video_path"):
+            v = detection_results.get(k)
+            if isinstance(v, str) and v.strip():
+                return v
+
+        # Nested shapes
+        for k in ("media", "_media", "paths", "_paths"):
+            block = detection_results.get(k)
+            if isinstance(block, dict):
+                for kk in ("guest", "guest_video_path", "guest_path"):
+                    v = block.get(kk)
+                    if isinstance(v, str) and v.strip():
+                        return v
+
+        return None
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_01
+    def _detect_post_normalization_peak_series_db(self, guest_video_path: str, audio_level: Dict[str, Any]) -> List[float]:
+        """Run FFmpeg analysis pass and return per-reset peak dBFS series (post-normalization)."""
+
+        logger = get_logger(__name__)
+
+        mode = str(audio_level.get("mode", ""))
+        if mode == "MATCH_HOST":
+            gain_db = float(audio_level.get("guest_gain_db"))
+            af = f"volume={gain_db}dB,astats=metadata=1:reset=1"
+        elif mode == "STANDARD_LUFS":
+            target = float(audio_level.get("target_lufs"))
+            params = audio_level.get("loudnorm_params") or {}
+            tp = float(params.get("TP"))
+            lra = float(params.get("LRA"))
+            af = f"loudnorm=I={target}:TP={tp}:LRA={lra},astats=metadata=1:reset=1"
+        else:
+            raise ValueError(f"Unknown normalization mode in audio_level_detector results: {mode}")
+
+        # IMPORTANT:
+        # This analysis filter chain MUST match the render-time normalization chain.
+        # Any mismatch means analyzed peaks will not reflect the rendered output.
+
+        cache_key = self._ffmpeg_analysis_cache_key(guest_video_path, mode, af)
+        cached = self._ffmpeg_analysis_cache_get(cache_key)
+        if cached is not None:
+            logger.debug(
+                "SpikeFixerDetector FFmpeg analysis cache hit: path=%s mode=%s",
+                guest_video_path,
+                mode,
+            )
+            return list(cached)
+
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-nostats",
+            "-loglevel",
+            "info",
+            "-i",
+            str(guest_video_path),
+            "-vn",
+            "-af",
+            af,
+            "-f",
+            "null",
+            "-",
+        ]
+        logger.debug("SpikeFixerDetector FFmpeg cmd: %s", " ".join(cmd))
+
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        stderr = proc.stderr or ""
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"FFmpeg analysis failed (code={proc.returncode}): {stderr.strip()}")
+
+        peak_series = self._parse_astats_peak_series_db(stderr)
+        self._ffmpeg_analysis_cache_set(cache_key, list(peak_series))
+        if peak_series:
+            logger.debug(
+                "SpikeFixerDetector astats peak series: n=%s max=%.2f",
+                len(peak_series),
+                max(peak_series),
+            )
+        return list(peak_series)
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_02
+    @classmethod
+    def _ffmpeg_analysis_cache_key(cls, guest_video_path: str, mode: str, af: str) -> Tuple[str, str, str, int, int]:
+        """Build a cache key for FFmpeg analysis results.
+
+        Cache safety goals:
+            - No cross-run stale cache: this cache is in-memory only.
+            - Invalidation within a run: incorporate file mtime/size.
+            - Keep it small: bounded by `_FFMPEG_ANALYSIS_CACHE_MAX_ITEMS`.
+        """
+
+        p = Path(guest_video_path)
+        try:
+            st = p.stat()
+            mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
+            size = int(st.st_size)
+        except Exception:
+            # If we can't stat (missing/permission), still allow execution without caching.
+            mtime_ns = -1
+            size = -1
+
+        return (str(p), str(mode), str(af), mtime_ns, size)
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_02
+    @classmethod
+    def _ffmpeg_analysis_cache_get(cls, key: Tuple[str, str, str, int, int]) -> List[float] | None:
+        v = cls._ffmpeg_analysis_cache.get(key)
+        if not v:
+            return None
+
+        created_at, series = v
+        if (time.time() - float(created_at)) > float(cls._FFMPEG_ANALYSIS_CACHE_TTL_SECONDS):
+            cls._ffmpeg_analysis_cache.pop(key, None)
+            return None
+
+        return list(series)
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_02
+    @classmethod
+    def _ffmpeg_analysis_cache_set(cls, key: Tuple[str, str, str, int, int], series: List[float]) -> None:
+        # Basic TTL + small-size eviction. This intentionally does NOT persist to disk.
+        now = time.time()
+        cls._ffmpeg_analysis_cache[key] = (now, list(series))
+
+        # Opportunistic cleanup.
+        if len(cls._ffmpeg_analysis_cache) <= int(cls._FFMPEG_ANALYSIS_CACHE_MAX_ITEMS):
+            return
+
+        # Remove oldest entries until under limit.
+        items = sorted(cls._ffmpeg_analysis_cache.items(), key=lambda kv: float(kv[1][0]))
+        while len(items) > int(cls._FFMPEG_ANALYSIS_CACHE_MAX_ITEMS):
+            k, _v = items.pop(0)
+            cls._ffmpeg_analysis_cache.pop(k, None)
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_01
+    def _spike_regions_from_peak_series(
+        self,
+        peak_series_db: List[float],
+        *,
+        reset_seconds: float,
+        duration_seconds: float,
+        threshold_db: float,
+    ) -> List[Tuple[float, float]]:
+        """Convert an astats per-reset peak series into spike regions."""
+
+        if not peak_series_db:
+            return []
+
+        reset_seconds = float(reset_seconds)
+        if reset_seconds <= 0:
+            raise ValueError("reset_seconds must be > 0")
+
+        duration_seconds = max(0.0, float(duration_seconds))
+
+        spike_regions: List[Tuple[float, float]] = []
+        for idx, peak_db in enumerate(peak_series_db):
+            if float(peak_db) <= float(threshold_db):
+                continue
+
+            start = float(idx) * reset_seconds
+            end = min(float(idx + 1) * reset_seconds, duration_seconds)
+            if end > start:
+                spike_regions.append((start, end))
+
+        # Merge adjacent/overlapping windows into coarser regions.
+        return self._merge_adjacent_regions(spike_regions, gap_threshold=0.1)
+
+    # [Created-or-Modified] by gpt-5.2 | 2026-01-20_01
+    @staticmethod
+    def _parse_astats_peak_series_db(stderr: str) -> List[float]:
+        """Extract a per-reset peak series from FFmpeg astats stderr output.
+
+        With `astats=...:reset=1`, FFmpeg prints repeated "Overall" blocks.
+        We treat each Overall block as one time window.
+        """
+
+        series: List[float] = []
+        current: float | None = None
+
+        for raw_line in (stderr or "").splitlines():
+            line = raw_line.strip()
+
+            # Start of a new window.
+            if re.search(r"\] Overall\b", line):
+                if current is not None:
+                    series.append(float(current))
+                current = None
+                continue
+
+            m = re.search(r"\b(?:Peak level dB|Max level dB):\s*(-?\d+(?:\.\d+)?)", line)
+            if not m:
+                continue
+
+            try:
+                v = float(m.group(1))
+            except Exception:
+                continue
+
+            if current is None:
+                current = v
+            else:
+                current = max(current, v)
+
+        if current is not None:
+            series.append(float(current))
+
+        if series:
+            return series
+
+        # Fallback: accept a single Overall metric.
+        values: List[float] = []
+        for m in re.finditer(r"\b(?:Peak level dB|Max level dB):\s*(-?\d+(?:\.\d+)?)", stderr or ""):
+            try:
+                values.append(float(m.group(1)))
+            except Exception:
+                continue
+        if not values:
+            raise ValueError("No astats peak/max dB values found in FFmpeg stderr")
+        return [float(max(values))]
 
     # Created-or-Modified by gpt-5.2 | 2026-01-09_01
     @staticmethod

@@ -16,6 +16,14 @@ class EditManifest:
     # Time ranges (start, end) from the ORIGINAL file to keep.
     # If empty, the whole file is kept.
     keep_segments: List[Tuple[float, float]] = field(default_factory=list)
+
+    # Pause removal bookkeeping (original timeline segments REMOVED).
+    # - Used for logging + optional pause-removal log file.
+    # - Render logic MUST continue to rely on keep_segments only.
+    pause_removals: List[Tuple[float, float]] = field(default_factory=list)
+
+    # True when the pause-removal processor ran (even if zero pauses detected).
+    pause_removal_applied: bool = False
     
     # FFmpeg filters to apply to the Host Track
     host_filters: List[AudioFilter] = field(default_factory=list)
