@@ -7,7 +7,7 @@ Automates “cleaning” of synchronized dual-video recordings (host + guest) wh
 Features:
 - Normalizes guest loudness to match the host (or to a standard LUFS target).
 - Reduces loud spikes in the guest track above a configured threshold.
-- Removes long silent pauses (considering both guest and host audio).
+- Shortens long mutual-silence pauses to a configurable minimum duration by removing only the excess.
 - Maintains sync by applying the same keep/remove decisions to both videos.
 
 Notes:

@@ -1,5 +1,6 @@
 # main.py
 
+import copy
 import logging
 import os
 import sys
@@ -123,7 +124,7 @@ def _run_process(host: str, guest: str, norm_mode: str | None, action: str | Non
     host, guest = normalize_video_lengths(host, guest)
      
     # Load Config
-    config = QUALITY_PRESETS['PODCAST_HIGH_QUALITY'].copy()
+    config = copy.deepcopy(QUALITY_PRESETS['PODCAST_HIGH_QUALITY'])
     if norm_mode:
         config['normalization']['mode'] = norm_mode
 
@@ -161,6 +162,7 @@ def _run_process(host: str, guest: str, norm_mode: str | None, action: str | Non
         logger.info(f"[RUN COMPLETE] FULL_PIPELINE - Duration: {format_duration(action_duration)}")
 
         logger.info("Success! Files created:\n" + "\n".join(created))
+        logger.info(f"[RESULT] host={h_out} guest={g_out}")
     except Exception as e:
         logger.error(f"Processing failed: {str(e)}")
         raise
