@@ -300,7 +300,7 @@ class AVCleanerGUI(tk.Tk):
         self.after(60, self._poll_log_queue)
 
     # Modified by gpt-5.2 | 2026-01-13_01
-    def run_processing(self, host_path: str, guest_path: str, *, action: str = "ALL") -> None:
+    def run_processing(self, host_path: str, guest_path: str) -> None:
         if self._proc and self._proc.poll() is None:
             messagebox.showwarning("Already running", "A job is already running.")
             return
@@ -317,16 +317,20 @@ class AVCleanerGUI(tk.Tk):
         cmd = [
             sys.executable,
             "main.py",
+            "process",
             "--host",
             host_path,
             "--guest",
             guest_path,
-            "--action",
-            action,
         ]
         self.append_log("$ " + " ".join(cmd) + "\n")
 
         def _worker() -> None:
+            import re
+            
+            _result_host: str | None = None
+            _result_guest: str | None = None
+            
             try:
                 self._proc = subprocess.Popen(
                     cmd,
@@ -351,10 +355,20 @@ class AVCleanerGUI(tk.Tk):
                         if _should_mirror_to_progress(line):
                             self.append_progress(line)
                         
+                    # Capture [RESULT] line with authoritative output paths.
+                    # Use pattern that handles paths with spaces: host=<path> guest=<path>
+                    # Match host= up to ' guest=' delimiter, then guest= to end of line.
+                    if line.startswith("[RESULT]"):
+                        m = re.search(r'host=(.+?)\s+guest=(.+)$', line.strip())
+                        if m:
+                            _result_host = m.group(1).strip()
+                            _result_guest = m.group(2).strip()
+                        
                 code = self._proc.wait()
                 if code == 0:
-                    host_processed = make_processed_output_path(host_path)
-                    guest_processed = make_processed_output_path(guest_path)
+                    # Use paths emitted by the pipeline, fall back to computed paths.
+                    host_processed = _result_host or make_processed_output_path(host_path)
+                    guest_processed = _result_guest or make_processed_output_path(guest_path)
 
                     if os.path.exists(host_processed):
                         self.after(0, self._set_row_for_path, "host", host_processed)

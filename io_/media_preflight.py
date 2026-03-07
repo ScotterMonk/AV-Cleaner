@@ -17,7 +17,7 @@ import ffmpeg
 from io_.media_probe import get_video_duration_seconds
 from io_.video_renderer import run_with_progress
 from utils.logger import get_logger
-from utils.path_helpers import add_suffix_to_filename, make_processed_output_path
+from utils.path_helpers import add_suffix_to_filename
 
 
 logger = get_logger(__name__)
@@ -30,24 +30,6 @@ class _NormalizePlan:
     input_duration_s: float
     target_duration_s: float
     pad_seconds: float
-
-
-def _safe_processed_output_path(input_path: str) -> str:
-    """Return a processed output path that is never equal to the input path.
-
-    Defense-in-depth: even if `make_processed_output_path()` is changed or monkeypatched
-    (unit tests), we still must not select the input path as our output target.
-    """
-
-    outp = make_processed_output_path(input_path)
-    if outp != input_path:
-        return outp
-
-    logger.warning(
-        "Processed output path equals input; using a fallback suffix to avoid overwriting: %s",
-        input_path,
-    )
-    return add_suffix_to_filename(input_path, "_normalized", output_ext=".mp4")
 
 
 def _video_pad_to_duration(plan: _NormalizePlan) -> None:
@@ -90,17 +72,20 @@ def normalize_video_lengths(host_path: str, guest_path: str) -> tuple[str, str]:
 
     - If durations are equal: returns inputs unchanged.
     - Otherwise: pads the shorter to match the longer (freeze last frame + append silence)
-      and returns stable `*_processed.mp4` outputs (without overwriting inputs).
+      and returns stable `*_preflight.mp4` intermediates (without overwriting inputs).
 
     Notes:
-    - When a mismatch is detected, we write *both* processed outputs so downstream
+    - When a mismatch is detected, we write *both* preflight outputs so downstream
       processing always operates on an aligned pair.
+    - Preflight outputs use `_preflight` suffix to reserve `_processed` for final outputs.
     """
 
     host_d = get_video_duration_seconds(host_path)
     guest_d = get_video_duration_seconds(guest_path)
 
-    if host_d == guest_d:
+    # Treat sub-frame probe jitter as aligned so tiny FFmpeg/container rounding differences
+    # do not trigger an unnecessary preflight re-encode.
+    if abs(host_d - guest_d) < 0.01:
         return host_path, guest_path
 
     target = max(host_d, guest_d)
@@ -110,8 +95,8 @@ def normalize_video_lengths(host_path: str, guest_path: str) -> tuple[str, str]:
         f"[SUBFUNCTION START] Pad end of shorter video ({which_padded}) to fit longer video length"
     )
 
-    out_host = _safe_processed_output_path(host_path)
-    out_guest = _safe_processed_output_path(guest_path)
+    out_host = add_suffix_to_filename(host_path, "_preflight", output_ext=".mp4")
+    out_guest = add_suffix_to_filename(guest_path, "_preflight", output_ext=".mp4")
 
     plans = [
         _NormalizePlan(
@@ -152,7 +137,7 @@ def normalize_video_lengths(host_path: str, guest_path: str) -> tuple[str, str]:
     from utils.logger import format_duration, format_time_cut
 
     logger.info(
-        f"[PREFLIGHT COMPLETE] Padded shorter video ({which_padded}) to fit longer video - Both videos modified to {format_time_cut(target)} duration - Completed in {format_duration(preflight_duration)}"
+        f"[PREFLIGHT COMPLETE] Padded shorter video ({which_padded}) to fit longer video - Preflight pair written to {format_time_cut(target)} duration - Completed in {format_duration(preflight_duration)}"
     )
 
     logger.info(
