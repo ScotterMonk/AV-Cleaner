@@ -20,6 +20,8 @@ activate.ps1
 # Misc
 notes/
 temp/
+test_results/
+test_videos/
 *.af
 *.afphoto
 
