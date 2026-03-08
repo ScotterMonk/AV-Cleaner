@@ -180,21 +180,30 @@ class CrossTalkDetector(BaseDetector):
         
         return regions
     
-    def _verify_mutual_silence(self, host_audio, guest_audio, 
+    def _verify_mutual_silence(self, host_audio, guest_audio,
             start, end, threshold_db):
         """
         Double-check that detected region is truly mutual silence.
         Quality gate to prevent false positives.
+
+        Uses RMS-based dBFS (pydub AudioSegment.dBFS) — NOT max_dBFS (peak).
+        Reason: the envelope detector in Step 4 uses windowed RMS via
+        calculate_db_envelope(), so we must stay consistent here.
+        max_dBFS reflects the single loudest sample in the region; a brief
+        noise click in an otherwise silent 2-second pause would cause the
+        peak to far exceed the threshold and reject a perfectly valid pause.
+        RMS averages energy across the whole segment, matching the detection
+        philosophy and preventing false rejections.
         """
         # Extract segments (pydub uses milliseconds)
         host_segment = host_audio[int(start*1000):int(end*1000)]
         guest_segment = guest_audio[int(start*1000):int(end*1000)]
         
-        # Check max dB in each segment
-        host_max = host_segment.max_dBFS if len(host_segment) > 0 else -100
-        guest_max = guest_segment.max_dBFS if len(guest_segment) > 0 else -100
+        # Use RMS-based dBFS, consistent with calculate_db_envelope() in detection
+        host_rms = host_segment.dBFS if len(host_segment) > 0 else -100
+        guest_rms = guest_segment.dBFS if len(guest_segment) > 0 else -100
         
-        return (host_max < threshold_db) and (guest_max < threshold_db)
+        return (host_rms < threshold_db) and (guest_rms < threshold_db)
     
     def get_name(self) -> str:
         return "cross_talk_detector"

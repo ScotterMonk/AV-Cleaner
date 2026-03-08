@@ -39,6 +39,12 @@ flowchart LR
 ## Configuration
 Edit `config.py` to change thresholds (spikes/silence), normalization behavior, and rendering options.
 
+## Secrets
+- Keep non-secret app behavior in `config.py`.
+- Keep credentials and other secret values in `.env` at the project root.
+- The app loads `.env` automatically on startup for both `python app.py` and `python main.py process ...`.
+- Read values in Python with `os.getenv("YOUR_SECRET_NAME")`.
+
 ## Output
 - The tool always renders a processed host + processed guest pair to preserve alignment.
 - Outputs are written as MP4 (even if inputs are AVI/MKV/etc.).

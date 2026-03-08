@@ -11,6 +11,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import click
 
+from utils.env_loader import env_file_load
+
+env_file_load()
+
 from core.pipeline import ProcessingPipeline
 from detectors.audio_level_detector import AudioLevelDetector
 from detectors.cross_talk_detector import CrossTalkDetector

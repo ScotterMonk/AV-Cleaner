@@ -438,9 +438,20 @@ def render_project(host_path, guest_path, manifest, out_host, out_guest, config)
                 seg_a = a_in.filter_("atrim", start=start, end=end).filter_("asetpts", "PTS-STARTPTS")
                 segments_a.append(seg_a)
                  
-            # Concatenate all segments
-            v = ffmpeg.concat(*segments_v, v=1, a=0).node[0]
-            a = ffmpeg.concat(*segments_a, v=0, a=1).node[0]
+            # Concatenate all segments using a single combined concat to guarantee A/V sync.
+            # Two separate concat filters (one for video, one for audio) accumulate PTS drift
+            # independently across segments: even sub-frame timing differences between a video
+            # trim boundary (frame-aligned) and an audio atrim boundary (sample-exact) compound
+            # over multiple cuts and produce sped-up or slowed-down playback.
+            # A combined concat=n=N:v=1:a=1 with interleaved [v, a] pairs locks video and audio
+            # together per-segment inside a single filter, preventing any drift from building up.
+            interleaved = []
+            for seg_v, seg_a in zip(segments_v, segments_a):
+                interleaved.append(seg_v)
+                interleaved.append(seg_a)
+            concat_out = ffmpeg.concat(*interleaved, v=1, a=1)
+            v = concat_out.node[0]  # video output (stream 0)
+            a = concat_out.node[1]  # audio output (stream 1)
              
         return v, a
 

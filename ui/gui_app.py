@@ -11,36 +11,21 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 from config import GUI
-from ui.gui_helpers import FileRowState, format_bytes, get_video_duration_seconds
+from ui.gui_helpers import FileRowState, format_duration_display, format_size_mb, get_video_duration_seconds
+from ui.gui_output_rows import output_row_create
 from ui.gui_pages import MainPage
+from ui.gui_process_helpers import progress_line_mirror_should, result_line_paths_parse
 from ui.gui_settings_page import SettingsPage
 from ui.gui_ffmpeg_formatter import format_ffmpeg_progress_line, should_show_progress_line, reset_progress_counter
 from ui.gui_outputs import save_fixed_outputs as gui_save_fixed_outputs
 from utils.path_helpers import make_processed_output_path
-
-
-def _should_mirror_to_progress(line: str) -> bool:
-    """True for non-FFmpeg lines that should also appear in the PROGRESS pane."""
-
-    return any(
-        token in line
-        for token in (
-            "[ACTION START]",
-            "[ACTION COMPLETE]",
-            "[SUBFUNCTION START]",
-            "[SUBFUNCTION COMPLETE]",
-            "[SUBFUNCTION FAILED]",
-            "[PREFLIGHT START]",
-            "[PREFLIGHT COMPLETE]",
-            "[RUN SUMMARY]",
-            "[DETAIL]",
-        )
-    )
+from utils.video_player_launch import video_player_open
 
 
 class AVCleanerGUI(tk.Tk):
     # Created by gpt-5.2 | 2026-01-08_01
     def __init__(self, *, project_dir: Path | None = None) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
         super().__init__()
 
         self._project_dir = project_dir or Path(__file__).resolve().parents[1]
@@ -86,6 +71,7 @@ class AVCleanerGUI(tk.Tk):
         self.configure(bg=self._palette["bg"])
 
         self._rows: dict[str, FileRowState] = {}
+        self._modded_rows: dict[str, FileRowState] = {}
         self._status_var = tk.StringVar(value="Ready")
 
         self._log_queue: Queue[str] = Queue()
@@ -301,12 +287,14 @@ class AVCleanerGUI(tk.Tk):
 
     # Modified by gpt-5.2 | 2026-01-13_01
     def run_processing(self, host_path: str, guest_path: str) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
         if self._proc and self._proc.poll() is None:
             messagebox.showwarning("Already running", "A job is already running.")
             return
 
         self.clear_logs()
         self.clear_progress()
+        self._clear_modded_rows()
         self.set_status("Running…")
 
         # Reset FFmpeg progress line counter for new process
@@ -325,12 +313,11 @@ class AVCleanerGUI(tk.Tk):
         ]
         self.append_log("$ " + " ".join(cmd) + "\n")
 
+        # Modified by gpt-5.4 | 2026-03-07
         def _worker() -> None:
-            import re
-            
             _result_host: str | None = None
             _result_guest: str | None = None
-            
+
             try:
                 self._proc = subprocess.Popen(
                     cmd,
@@ -352,18 +339,14 @@ class AVCleanerGUI(tk.Tk):
                     else:
                         # Pass through non-progress lines as-is
                         self.append_log(line)
-                        if _should_mirror_to_progress(line):
+                        if progress_line_mirror_should(line):
                             self.append_progress(line)
-                        
-                    # Capture [RESULT] line with authoritative output paths.
-                    # Use pattern that handles paths with spaces: host=<path> guest=<path>
-                    # Match host= up to ' guest=' delimiter, then guest= to end of line.
-                    if line.startswith("[RESULT]"):
-                        m = re.search(r'host=(.+?)\s+guest=(.+)$', line.strip())
-                        if m:
-                            _result_host = m.group(1).strip()
-                            _result_guest = m.group(2).strip()
-                        
+
+                    result_host, result_guest = result_line_paths_parse(line)
+                    if result_host and result_guest:
+                        _result_host = result_host
+                        _result_guest = result_guest
+
                 code = self._proc.wait()
                 if code == 0:
                     # Use paths emitted by the pipeline, fall back to computed paths.
@@ -371,9 +354,9 @@ class AVCleanerGUI(tk.Tk):
                     guest_processed = _result_guest or make_processed_output_path(guest_path)
 
                     if os.path.exists(host_processed):
-                        self.after(0, self._set_row_for_path, "host", host_processed)
+                        self.after(0, self._set_modded_row_for_path, "host", host_processed)
                     if os.path.exists(guest_processed):
-                        self.after(0, self._set_row_for_path, "guest", guest_processed)
+                        self.after(0, self._set_modded_row_for_path, "guest", guest_processed)
 
                     self.set_status("Done")
                 else:
@@ -385,6 +368,7 @@ class AVCleanerGUI(tk.Tk):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _create_file_row(self, parent: tk.Widget, row_index: int, role: str, *, button_text: str | None = None) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
         browse_btn = self._make_btn(
             parent,
             button_text or "BROWSE",
@@ -397,14 +381,42 @@ class AVCleanerGUI(tk.Tk):
         size_var = tk.StringVar(value="")
         length_var = tk.StringVar(value="")
 
+        file_cell = tk.Frame(parent, bg=self._palette["panel"])
+        file_cell.grid(row=row_index, column=1, padx=8, pady=6, sticky="ew")
+        file_cell.columnconfigure(1, weight=1)
+
+        play_btn = tk.Button(
+            file_cell,
+            text="▶",
+            command=lambda r=role: self._play_source_row(r),
+            font=self._f(self._fonts["body"], "bold"),
+            bg=self._palette["panel"],
+            fg=self._ui_colors["accent_line"],
+            activebackground=self._palette["panel2"],
+            activeforeground=self._ui_colors["accent_font"],
+            relief="flat",
+            bd=0,
+            padx=2,
+            pady=0,
+            highlightthickness=0,
+        )
+        play_btn.grid(row=0, column=0, padx=(0, 8), sticky="w")
+        play_btn.grid_remove()
+        try:
+            play_btn.configure(cursor="hand2")
+        except tk.TclError:
+            pass
+        play_btn.bind("<Enter>", lambda _evt: play_btn.configure(bg=self._palette["panel2"]))
+        play_btn.bind("<Leave>", lambda _evt: play_btn.configure(bg=self._palette["panel"]))
+
         tk.Label(
-            parent,
+            file_cell,
             textvariable=file_var,
             anchor="w",
             font=self._mono(),
             bg=self._palette["panel"],
             fg=self._palette["text"],
-        ).grid(row=row_index, column=1, padx=8, pady=6, sticky="ew")
+        ).grid(row=0, column=1, sticky="ew")
         tk.Label(
             parent,
             textvariable=size_var,
@@ -422,9 +434,50 @@ class AVCleanerGUI(tk.Tk):
             fg=self._palette["muted"],
         ).grid(row=row_index, column=3, padx=8, pady=6, sticky="w")
 
-        self._rows[role] = FileRowState(path=None, file_var=file_var, size_var=size_var, length_var=length_var)
+        self._rows[role] = FileRowState(
+            path=None,
+            file_var=file_var,
+            size_var=size_var,
+            length_var=length_var,
+            play_btn=play_btn,
+        )
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _create_output_row(self, parent: tk.Widget, row_index: int, role: str, *, label_text: str) -> None:
+        self._modded_rows[role] = output_row_create(self, parent, row_index, role, label_text=label_text)
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _play_modded_row(self, role: str) -> None:
+        """Open a processed host/guest output in the configured video player."""
+
+        row = self._modded_rows[role]
+        if not row.path:
+            messagebox.showinfo("Play", "No processed video is available yet.")
+            return
+
+        try:
+            video_player_open(row.path, player_path=str(GUI.get("default_video_player", "")))
+            self.set_status(f"Opened {os.path.basename(row.path)}")
+        except (FileNotFoundError, OSError) as exc:
+            messagebox.showerror("Play failed", str(exc))
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _play_source_row(self, role: str) -> None:
+        """Open a selected source host/guest video in the configured video player."""
+
+        row = self._rows[role]
+        if not row.path:
+            messagebox.showinfo("Play", "No source video is selected yet.")
+            return
+
+        try:
+            video_player_open(row.path, player_path=str(GUI.get("default_video_player", "")))
+            self.set_status(f"Opened {os.path.basename(row.path)}")
+        except (FileNotFoundError, OSError) as exc:
+            messagebox.showerror("Play failed", str(exc))
 
     def _select_file(self, role: str) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
         title = "Select Host Video" if role == "host" else "Select Guest Video"
         video_path = filedialog.askopenfilename(
             title=title,
@@ -436,25 +489,48 @@ class AVCleanerGUI(tk.Tk):
         if not video_path:
             return
 
+        self._clear_modded_rows()
         self._set_row_for_path(role=role, video_path=video_path)
 
     def _set_row_for_path(self, role: str, video_path: str) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
         row = self._rows[role]
-        row.path = video_path
+        self._populate_file_row(row, video_path)
 
+    # Created by gpt-5.4 | 2026-03-07
+    def _set_modded_row_for_path(self, role: str, video_path: str) -> None:
+        self._populate_file_row(self._modded_rows[role], video_path)
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _populate_file_row(self, row: FileRowState, video_path: str) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
+        row.path = video_path
         row.file_var.set(os.path.basename(video_path))
+        if row.play_btn is not None:
+            row.play_btn.grid()
 
         try:
             size_bytes = os.path.getsize(video_path)
-            row.size_var.set(format_bytes(size_bytes))
+            row.size_var.set(format_size_mb(size_bytes))
         except OSError:
             row.size_var.set("")
 
         try:
             duration_s = get_video_duration_seconds(video_path)
-            row.length_var.set(f"{duration_s:.2f}s")
+            row.length_var.set(format_duration_display(duration_s))
         except Exception:
             row.length_var.set("")
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _clear_modded_rows(self) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
+        for row in self._modded_rows.values():
+            row.path = None
+            row.file_var.set("")
+            row.size_var.set("")
+            row.length_var.set("")
+            if row.play_btn is not None:
+                row.play_btn.grid_remove()
 
     def save_fixed_outputs(self, host: str, guest: str) -> None:
         try:

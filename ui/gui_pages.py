@@ -6,7 +6,8 @@ This module contains page-level UI building blocks used by the main GUI app.
 
 Design notes:
 - The GUI is intentionally composed from small helpers on the app object
-  (see: app._make_panel(), app._make_btn(), app._create_file_row()).
+  (see: app._make_panel(), app._make_btn(), app._create_file_row(),
+  app._create_output_row()).
 - Page classes focus on layout + wiring (callbacks), while the app owns state
   (selected files, logs, status) and actions (running processing, saving).
 """
@@ -103,41 +104,23 @@ class MainPage(tk.Frame):
         self._build_progress(progress_panel.body)
 
     def _build_files(self, parent: tk.Frame) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
+        # Modified by gpt-5.4 | 2026-03-07
         app = self._app
 
-        # Table layout:
-        #   col 0: browse button
-        #   col 1: selected file path (stretch)
-        #   col 2: file size
-        #   col 3: media length / duration
-        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(0, weight=1)
         parent.columnconfigure(1, weight=1)
-        parent.columnconfigure(2, weight=0)
-        parent.columnconfigure(3, weight=0)
 
-        # Header row: use monospace + bold so it resembles a simple table.
-        hdr = app._mono(weight="bold")
-        tk.Label(parent, text="BROWSE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=0, column=0, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="FILE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=0, column=1, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="SIZE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=0, column=2, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="LENGTH", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=0, column=3, padx=8, pady=(0, 10), sticky="w"
-        )
+        source_frame = tk.Frame(parent, bg=app._palette["panel"])
+        source_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
 
-        # Input rows: host first, guest second.
-        # The app helper wires up the browse action and populates size/length.
-        self._build_file_row(parent, row_index=1, role="host")
-        self._build_file_row(parent, row_index=2, role="guest")
+        modded_frame = tk.Frame(parent, bg=app._palette["panel"])
+        modded_frame.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
+
+        self._build_source_files_section(source_frame)
+        self._build_modded_files_section(modded_frame)
 
     def _build_file_row(self, parent: tk.Frame, row_index: int, role: str) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
+        # Modified by gpt-5.4 | 2026-03-07
         app = self._app
 
         # Label the browse button by role so users always know which input they
@@ -145,19 +128,68 @@ class MainPage(tk.Frame):
         btn_text = "BROWSE HOST" if role == "host" else "BROWSE GUEST"
         app._create_file_row(parent, row_index=row_index, role=role, button_text=btn_text)
 
-    def _build_controls(self, parent: tk.Frame) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_02
+    # Created by gpt-5.4 | 2026-03-07
+    def _build_source_files_section(self, parent: tk.Frame) -> None:
         app = self._app
+        hdr = app._mono(weight="bold")
 
-        # Center the buttons
-        container = tk.Frame(parent, bg=app._palette["panel"])
-        container.pack(expand=True)
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.columnconfigure(2, weight=0)
+        parent.columnconfigure(3, weight=0)
 
-        # VCR-like buttons: Play, Pause, Stop
-        # Using unicode symbols
-        app._make_btn(container, "▶", lambda: None, kind="primary").pack(side="left", padx=6)
-        app._make_btn(container, "‖", lambda: None, kind="secondary").pack(side="left", padx=6)
-        app._make_btn(container, "⏹", lambda: None, kind="secondary").pack(side="left", padx=6)
+        tk.Label(parent, text="SOURCE FILES", font=hdr, bg=app._palette["panel"], fg=app._ui_colors["accent_font"]).grid(
+            row=0, column=0, columnspan=4, padx=8, pady=(0, 10), sticky="w"
+        )
+        tk.Label(parent, text="BROWSE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
+            row=1, column=0, padx=8, pady=(0, 10), sticky="w"
+        )
+        tk.Label(parent, text="FILE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
+            row=1, column=1, padx=8, pady=(0, 10), sticky="w"
+        )
+        tk.Label(parent, text="SIZE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
+            row=1, column=2, padx=8, pady=(0, 10), sticky="w"
+        )
+        tk.Label(parent, text="LENGTH", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
+            row=1, column=3, padx=8, pady=(0, 10), sticky="w"
+        )
+
+        self._build_file_row(parent, row_index=2, role="host")
+        self._build_file_row(parent, row_index=3, role="guest")
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _build_modded_files_section(self, parent: tk.Frame) -> None:
+        app = self._app
+        hdr = app._mono(weight="bold")
+
+        parent.columnconfigure(0, weight=0)
+        parent.columnconfigure(1, weight=1)
+        parent.columnconfigure(2, weight=0)
+        parent.columnconfigure(3, weight=0)
+
+        tk.Label(parent, text="MODDED FILES", font=hdr, bg=app._palette["panel"], fg=app._ui_colors["accent_font"]).grid(
+            row=0, column=0, columnspan=4, padx=8, pady=(0, 10), sticky="w"
+        )
+        tk.Label(parent, text="ROLE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
+            row=1, column=0, padx=8, pady=(0, 10), sticky="w"
+        )
+        tk.Label(parent, text="FILE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
+            row=1, column=1, padx=8, pady=(0, 10), sticky="w"
+        )
+        tk.Label(parent, text="SIZE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
+            row=1, column=2, padx=8, pady=(0, 10), sticky="w"
+        )
+        tk.Label(parent, text="LENGTH", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
+            row=1, column=3, padx=8, pady=(0, 10), sticky="w"
+        )
+
+        app._create_output_row(parent, row_index=2, role="host", label_text="HOST")
+        app._create_output_row(parent, row_index=3, role="guest", label_text="GUEST")
+
+    def _build_controls(self, parent: tk.Frame) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
+        # Intentionally leave the panel body empty so only the CONTROLS title remains visible.
+        return None
 
     def _build_actions(self, parent: tk.Frame) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
@@ -167,14 +199,11 @@ class MainPage(tk.Frame):
         # Actions are arranged as two packed rows for simple left-to-right flow.
         # Using pack() here keeps the button row heights content-driven.
 
-        # Single row: PROCESS, SAVE MODIFIED FILES, CLEAR, OPEN OUT
+        # Single row: PROCESS, CLEAR, OPEN OUT
         # Keep all actions aligned on one line with consistent horizontal spacing.
         row = tk.Frame(parent, bg=app._palette["panel"])
         row.pack(fill="x")
         app._make_btn(row, "PROCESS", self._run_clicked, kind="primary").pack(side="left", padx=(0, 6))
-        app._make_btn(row, "SAVE MODIFIED FILES", self._save_modified_clicked, kind="secondary").pack(
-            side="left", padx=(0, 6)
-        )
         app._make_btn(row, "CLEAR", self._clear_clicked, kind="secondary").pack(side="left", padx=(0, 6))
         app._make_btn(row, "OPEN OUT", self._open_output_clicked, kind="secondary").pack(side="left")
 
@@ -370,11 +399,15 @@ class MainPage(tk.Frame):
         self._progress_text.configure(state="disabled")
 
     def _clear_clicked(self) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
+        # Modified by gpt-5.4 | 2026-03-07
         # Progress header stays visible (shows column layout at all times)
         self._app.clear_logs()
         try:
             self._app.clear_progress()
+        except Exception:
+            pass
+        try:
+            self._app._clear_modded_rows()
         except Exception:
             pass
         self._app.set_status("Ready")
@@ -401,21 +434,4 @@ class MainPage(tk.Frame):
             messagebox.showwarning("Missing files", "Select both HOST and GUEST files first.")
             return
         self._app.run_processing(host, guest)
-
-    # Created by Claude-4.5-Sonnet | 2026-01-08_03
-    def _save_modified_clicked(self) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
-        """Save new files with _fixed suffix."""
-
-        # Saving outputs is a separate step so users can run multiple actions and
-        # review logs before writing files.
-        host_row = self._app._rows.get("host")
-        guest_row = self._app._rows.get("guest")
-        host = host_row.path if host_row else None
-        guest = guest_row.path if guest_row else None
-        if not host or not guest:
-            messagebox.showwarning("Missing files", "Select both HOST and GUEST files first.")
-            return
-
-        self._app.save_fixed_outputs(host, guest)
 
