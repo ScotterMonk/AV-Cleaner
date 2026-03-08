@@ -27,6 +27,7 @@ class ProcessingPipeline:
         self.processors.append(processor)
         return self
 
+    # Modified by gpt-5.4 | 2026-03-08
     def execute(
         self,
         host_video_path: str,
@@ -135,12 +136,56 @@ class ProcessingPipeline:
                 )
             elif processor_name == "WordRemover":
                 from utils.logger import format_time_cut
+                from utils.time_helpers import seconds_to_hms
+
                 word_removals = getattr(manifest, "word_removals", []) or []
+                word_removal_details = getattr(manifest, "word_removal_details", []) or []
                 total_removed_seconds = sum(end - start for start, end in word_removals)
-                logger.info(
-                    f"[DETAIL] Removed {len(word_removals)} filler word(s) from both Guest and Host videos | "
-                    f"Total time removed: {format_time_cut(total_removed_seconds)}"
-                )
+
+                host_word_details = [
+                    detail
+                    for detail in word_removal_details
+                    if str(detail.get("track") or "").lower() == "host"
+                ]
+                guest_word_details = [
+                    detail
+                    for detail in word_removal_details
+                    if str(detail.get("track") or "").lower() == "guest"
+                ]
+
+                if host_word_details or guest_word_details:
+                    for label, track_details in (("Host", host_word_details), ("Guest", guest_word_details)):
+                        if not track_details:
+                            continue
+
+                        detail_parts = []
+                        removed_count = 0
+                        muted_count = 0
+                        skipped_count = 0
+                        for detail in track_details:
+                            timestamp = seconds_to_hms(float(detail["start_sec"]))
+                            confidence = float(detail.get("confidence", 0.0) or 0.0)
+                            action = str(detail.get("action") or "cut").lower()
+                            if action == "mute":
+                                muted_count += 1
+                            elif action == "skip":
+                                skipped_count += 1
+                            else:
+                                removed_count += 1
+                            detail_parts.append(
+                                f'"{str(detail.get("text") or "").strip()}" @ {timestamp.split(".", 1)[0]} '
+                                f'({action}, confidence: {confidence:.4f})'
+                            )
+
+                        logger.info(
+                            f"[DETAIL] {label} vid filler words: {removed_count} removed, {muted_count} muted, {skipped_count} skipped | "
+                            f"{'; '.join(detail_parts)}"
+                        )
+                else:
+                    logger.info(
+                        f"[DETAIL] Removed {len(word_removals)} filler word(s) from both Guest and Host videos | "
+                        f"Total time removed: {format_time_cut(total_removed_seconds)}"
+                    )
             elif processor_name == "AudioNormalizer":
                 gain_db = getattr(manifest, "guest_audio_gain_db_applied", None)
                 gain_est_db = getattr(manifest, "guest_audio_gain_db_estimate", None)

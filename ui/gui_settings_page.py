@@ -170,6 +170,12 @@ class SettingsPage(tk.Frame):
         app = self._app
         self._pipe_vars: dict[str, tk.BooleanVar] = {}
 
+        self._word_vars: dict[str, tk.StringVar] = {
+            "words_to_remove": tk.StringVar(),
+            "confidence_required_host": tk.StringVar(value="1.00"),
+            "confidence_required_guest": tk.StringVar(value="0.90"),
+        }
+
         # Quality preset vars (PODCAST_HIGH_QUALITY)
         self._qual_vars: dict[str, tk.StringVar] = {
             "silence_threshold_db": tk.StringVar(value="-45"),
@@ -233,7 +239,7 @@ class SettingsPage(tk.Frame):
         self._pipe_canvas.bind("<Leave>", _unbind_mousewheel)
 
     # Modified by gpt-5.4 | 2026-03-07
-    def _render_pipeline_toggles(self, pipe_cfg: dict, qual_presets: dict) -> None:
+    def _render_pipeline_toggles(self, pipe_cfg: dict, qual_presets: dict, words_cfg: dict) -> None:
         app = self._app
         for c in self._pipe_container.winfo_children():
             c.destroy()
@@ -263,6 +269,13 @@ class SettingsPage(tk.Frame):
         # Default quality display (CRF as master, or fallback to NVENC CQ)
         start_q = preset.get("crf", 23)
         self._enc_quality.set(str(start_q))
+
+        words_to_remove = words_cfg.get("words_to_remove", [])
+        if not isinstance(words_to_remove, list):
+            words_to_remove = []
+        self._word_vars["words_to_remove"].set(", ".join(str(word).strip() for word in words_to_remove if str(word).strip()))
+        self._word_vars["confidence_required_host"].set(str(words_cfg.get("confidence_required_host", 1.0)))
+        self._word_vars["confidence_required_guest"].set(str(words_cfg.get("confidence_required_guest", 0.9)))
 
         def mk_section(title: str) -> tk.Frame:
             tk.Label(
@@ -369,6 +382,11 @@ class SettingsPage(tk.Frame):
             t = str(p.get("type"))
             mk_toggle(proc_sec, f"processors:{i}", t, bool(p.get("enabled")))
 
+        words_sec = mk_section("FILLER WORD DETECTION")
+        mk_kv_row(words_sec, "Words to remove (comma-separated)", self._word_vars["words_to_remove"], width=28)
+        mk_kv_row(words_sec, "Host confidence required", self._word_vars["confidence_required_host"], width=10)
+        mk_kv_row(words_sec, "Guest confidence required", self._word_vars["confidence_required_guest"], width=10)
+
         # --- Encoding Section ---
         enc_sec = mk_section("VIDEO ENCODING")
 
@@ -443,7 +461,10 @@ class SettingsPage(tk.Frame):
 
         note = tk.Label(
             self._pipe_container,
-            text="Settings save to QUALITY_PRESETS & PIPELINE_CONFIG in config.py.\nRestart GUI to apply full pipeline changes.",
+            text=(
+                "Settings save to QUALITY_PRESETS, PIPELINE_CONFIG, and WORDS_TO_REMOVE in config.py.\n"
+                "Words to remove should be comma-separated. Restart GUI to apply full pipeline changes."
+            ),
             font=app._mono(),
             bg=app._palette["panel"],
             fg=app._palette["muted"],
@@ -454,14 +475,14 @@ class SettingsPage(tk.Frame):
     # Modified by gpt-5.4 | 2026-03-07
     def _reload(self) -> None:
         try:
-            gui_dict, pipe_cfg, qual_presets = ConfigEditor.load_gui_and_pipeline(self._config_path)
+            gui_dict, pipe_cfg, qual_presets, words_cfg = ConfigEditor.load_gui_pipeline_quality_words(self._config_path)
         except Exception as e:
             messagebox.showerror("Config load failed", str(e))
             return
 
         for k, v in self._vars.items():
             v.set(str(gui_dict.get(k, "")))
-        self._render_pipeline_toggles(pipe_cfg, qual_presets)
+        self._render_pipeline_toggles(pipe_cfg, qual_presets, words_cfg)
         self._app.set_status("Settings loaded")
 
     # Modified by gpt-5.4 | 2026-03-07
@@ -482,6 +503,15 @@ class SettingsPage(tk.Frame):
                 raise ValueError(f"{key} is required")
             return raw
 
+        def to_float_word(key: str, label: str) -> float:
+            raw = self._word_vars[key].get().strip()
+            if raw == "":
+                raise ValueError(f"{label} is required")
+            try:
+                return float(raw)
+            except ValueError:
+                raise ValueError(f"{label} must be a number")
+
         try:
             gui_update = {
                 "gui_width": to_int("gui_width"),
@@ -499,7 +529,7 @@ class SettingsPage(tk.Frame):
                 "ui_accent_line_color": to_color("ui_accent_line_color"),
             }
 
-            _, pipe_cfg, qual_presets = ConfigEditor.load_gui_and_pipeline(self._config_path)
+            _, pipe_cfg, qual_presets, words_cfg = ConfigEditor.load_gui_pipeline_quality_words(self._config_path)
 
             # Update Pipeline Config
             for k, var in self._pipe_vars.items():
@@ -565,7 +595,24 @@ class SettingsPage(tk.Frame):
 
             preset["nvenc"]["cq"] = qual_val
 
-            ConfigEditor.write_gui_and_pipeline(self._config_path, gui_update, pipe_cfg, qual_presets)
+            words_raw = self._word_vars["words_to_remove"].get().strip()
+            words_cfg["words_to_remove"] = [
+                word.strip() for word in words_raw.split(",") if word.strip()
+            ]
+            words_cfg["confidence_required_host"] = to_float_word(
+                "confidence_required_host", "Host confidence required"
+            )
+            words_cfg["confidence_required_guest"] = to_float_word(
+                "confidence_required_guest", "Guest confidence required"
+            )
+
+            ConfigEditor.write_gui_and_pipeline(
+                self._config_path,
+                gui_update,
+                pipe_cfg,
+                qual_presets,
+                words_cfg,
+            )
         except Exception as e:
             messagebox.showerror("Save failed", str(e))
             return
