@@ -18,20 +18,23 @@ env_file_load()
 from core.pipeline import ProcessingPipeline
 from detectors.audio_level_detector import AudioLevelDetector
 from detectors.cross_talk_detector import CrossTalkDetector
+from detectors.filler_word_detector import FillerWordDetector
 from detectors.spike_fixer_detector import SpikeFixerDetector
 from io_.media_preflight import normalize_video_lengths
 from io_.media_probe import get_video_duration_seconds
 from processors.spike_fixer import SpikeFixer
 from processors.audio_normalizer import AudioNormalizer
 from processors.segment_remover import SegmentRemover
+from processors.word_remover import WordRemover
 from config import QUALITY_PRESETS, PIPELINE_CONFIG
 from utils.logger import format_duration, format_time_cut, setup_logger
 
 
 _PROCESSOR_REGISTRY = {
     "SegmentRemover": SegmentRemover,
+    "WordRemover":    WordRemover,
     "AudioNormalizer": AudioNormalizer,
-    "SpikeFixer": SpikeFixer,
+    "SpikeFixer":     SpikeFixer,
 }
 
 
@@ -77,6 +80,11 @@ def _register_required_detectors(pipeline: ProcessingPipeline) -> None:
     if _pipeline_component_enabled("processors", "SegmentRemover"):
         pipeline.add_detector(CrossTalkDetector(pipeline.config))
         detector_order.append("CrossTalkDetector")
+
+    # WordRemover requires word-level transcription detection.
+    if _pipeline_component_enabled("processors", "WordRemover"):
+        pipeline.add_detector(FillerWordDetector(pipeline.config))
+        detector_order.append("FillerWordDetector")
 
     if detector_order:
         logger.info(

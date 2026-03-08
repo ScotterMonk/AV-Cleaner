@@ -109,6 +109,8 @@ class ProcessingPipeline:
                 friendly = "Normalize Guest Audio"
             elif processor_name == "SegmentRemover":
                 friendly = "Remove pauses"
+            elif processor_name == "WordRemover":
+                friendly = "Remove filler words"
             elif processor_name == "SpikeFixer":
                 # Keep user-facing title stable; report spike count after completion.
                 friendly = "Remove audio spikes"
@@ -129,6 +131,14 @@ class ProcessingPipeline:
                 total_removed_seconds = sum(end - start for start, end in removals)
                 logger.info(
                     f"[DETAIL] Removed {len(removals)} pause(s) from both Guest and Host videos | "
+                    f"Total time removed: {format_time_cut(total_removed_seconds)}"
+                )
+            elif processor_name == "WordRemover":
+                from utils.logger import format_time_cut
+                word_removals = getattr(manifest, "word_removals", []) or []
+                total_removed_seconds = sum(end - start for start, end in word_removals)
+                logger.info(
+                    f"[DETAIL] Removed {len(word_removals)} filler word(s) from both Guest and Host videos | "
                     f"Total time removed: {format_time_cut(total_removed_seconds)}"
                 )
             elif processor_name == "AudioNormalizer":
