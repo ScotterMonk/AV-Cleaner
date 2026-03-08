@@ -16,6 +16,8 @@ import os
 import tkinter as tk
 from tkinter import messagebox
 
+from ui.gui_output_rows import file_grid_line_color_get
+
 
 panel_external_padding_y = 6
 
@@ -104,6 +106,7 @@ class MainPage(tk.Frame):
         self._build_progress(progress_panel.body)
 
     def _build_files(self, parent: tk.Frame) -> None:
+        # Modified by gpt-5.4 | 2026-03-08
         # Modified by gpt-5.4 | 2026-03-07
         app = self._app
 
@@ -120,6 +123,7 @@ class MainPage(tk.Frame):
         self._build_modded_files_section(modded_frame)
 
     def _build_file_row(self, parent: tk.Frame, row_index: int, role: str) -> None:
+        # Modified by gpt-5.4 | 2026-03-08
         # Modified by gpt-5.4 | 2026-03-07
         app = self._app
 
@@ -128,63 +132,79 @@ class MainPage(tk.Frame):
         btn_text = "BROWSE HOST" if role == "host" else "BROWSE GUEST"
         app._create_file_row(parent, row_index=row_index, role=role, button_text=btn_text)
 
+    # Created by gpt-5.4 | 2026-03-08
+    def _create_files_grid(self, parent: tk.Frame) -> tk.Frame:
+        # Modified by gpt-5.4 | 2026-03-08
+        app = self._app
+        grid = tk.Frame(parent, bg=file_grid_line_color_get(app), bd=0, highlightthickness=0)
+        grid.grid(row=1, column=0, columnspan=4, sticky="nsew")
+        grid._files_grid_enabled = True  # type: ignore[attr-defined]
+        grid.columnconfigure(0, weight=0)
+        grid.columnconfigure(1, weight=1)
+        grid.columnconfigure(2, weight=0)
+        grid.columnconfigure(3, weight=0)
+        return grid
+
+    # Created by gpt-5.4 | 2026-03-08
+    def _create_files_header_cell(self, parent: tk.Frame, row_index: int, column_index: int, text: str) -> None:
+        app = self._app
+        cell = tk.Frame(parent, bg=app._palette["panel"], bd=0, highlightthickness=0)
+        cell.grid(
+            row=row_index,
+            column=column_index,
+            sticky="nsew",
+            padx=(1 if column_index == 0 else 0, 1),
+            pady=(1 if row_index == 0 else 0, 1),
+        )
+        tk.Label(
+            cell,
+            text=text,
+            font=app._mono(weight="bold"),
+            bg=app._palette["panel"],
+            fg=app._palette["muted"],
+        ).pack(anchor="w", padx=8, pady=6)
+
     # Created by gpt-5.4 | 2026-03-07
     def _build_source_files_section(self, parent: tk.Frame) -> None:
+        # Modified by gpt-5.4 | 2026-03-08
         app = self._app
         hdr = app._mono(weight="bold")
 
-        parent.columnconfigure(0, weight=0)
-        parent.columnconfigure(1, weight=1)
-        parent.columnconfigure(2, weight=0)
-        parent.columnconfigure(3, weight=0)
+        parent.columnconfigure(0, weight=1)
 
         tk.Label(parent, text="SOURCE FILES", font=hdr, bg=app._palette["panel"], fg=app._ui_colors["accent_font"]).grid(
-            row=0, column=0, columnspan=4, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="BROWSE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=1, column=0, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="FILE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=1, column=1, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="SIZE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=1, column=2, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="LENGTH", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=1, column=3, padx=8, pady=(0, 10), sticky="w"
+            row=0, column=0, padx=8, pady=(0, 10), sticky="w"
         )
 
-        self._build_file_row(parent, row_index=2, role="host")
-        self._build_file_row(parent, row_index=3, role="guest")
+        grid = self._create_files_grid(parent)
+        self._create_files_header_cell(grid, 0, 0, "BROWSE")
+        self._create_files_header_cell(grid, 0, 1, "FILE")
+        self._create_files_header_cell(grid, 0, 2, "SIZE")
+        self._create_files_header_cell(grid, 0, 3, "LENGTH")
+
+        self._build_file_row(grid, row_index=1, role="host")
+        self._build_file_row(grid, row_index=2, role="guest")
 
     # Created by gpt-5.4 | 2026-03-07
     def _build_modded_files_section(self, parent: tk.Frame) -> None:
+        # Modified by gpt-5.4 | 2026-03-08
         app = self._app
         hdr = app._mono(weight="bold")
 
-        parent.columnconfigure(0, weight=0)
-        parent.columnconfigure(1, weight=1)
-        parent.columnconfigure(2, weight=0)
-        parent.columnconfigure(3, weight=0)
+        parent.columnconfigure(0, weight=1)
 
         tk.Label(parent, text="MODDED FILES", font=hdr, bg=app._palette["panel"], fg=app._ui_colors["accent_font"]).grid(
-            row=0, column=0, columnspan=4, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="ROLE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=1, column=0, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="FILE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=1, column=1, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="SIZE", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=1, column=2, padx=8, pady=(0, 10), sticky="w"
-        )
-        tk.Label(parent, text="LENGTH", font=hdr, bg=app._palette["panel"], fg=app._palette["muted"]).grid(
-            row=1, column=3, padx=8, pady=(0, 10), sticky="w"
+            row=0, column=0, padx=8, pady=(0, 10), sticky="w"
         )
 
-        app._create_output_row(parent, row_index=2, role="host", label_text="HOST")
-        app._create_output_row(parent, row_index=3, role="guest", label_text="GUEST")
+        grid = self._create_files_grid(parent)
+        self._create_files_header_cell(grid, 0, 0, "ROLE")
+        self._create_files_header_cell(grid, 0, 1, "FILE")
+        self._create_files_header_cell(grid, 0, 2, "SIZE")
+        self._create_files_header_cell(grid, 0, 3, "LENGTH")
+
+        app._create_output_row(grid, row_index=1, role="host", label_text="HOST")
+        app._create_output_row(grid, row_index=2, role="guest", label_text="GUEST")
 
     def _build_controls(self, parent: tk.Frame) -> None:
         # Modified by gpt-5.4 | 2026-03-07
@@ -199,12 +219,11 @@ class MainPage(tk.Frame):
         # Actions are arranged as two packed rows for simple left-to-right flow.
         # Using pack() here keeps the button row heights content-driven.
 
-        # Single row: PROCESS, CLEAR, OPEN OUT
+        # Single row: PROCESS, OPEN OUT
         # Keep all actions aligned on one line with consistent horizontal spacing.
         row = tk.Frame(parent, bg=app._palette["panel"])
         row.pack(fill="x")
         app._make_btn(row, "PROCESS", self._run_clicked, kind="primary").pack(side="left", padx=(0, 6))
-        app._make_btn(row, "CLEAR", self._clear_clicked, kind="secondary").pack(side="left", padx=(0, 6))
         app._make_btn(row, "OPEN OUT", self._open_output_clicked, kind="secondary").pack(side="left")
 
     def _build_logs(self, parent: tk.Frame) -> None:
@@ -397,20 +416,6 @@ class MainPage(tk.Frame):
         self._progress_text.insert("end", text)
         self._progress_text.see("end")
         self._progress_text.configure(state="disabled")
-
-    def _clear_clicked(self) -> None:
-        # Modified by gpt-5.4 | 2026-03-07
-        # Progress header stays visible (shows column layout at all times)
-        self._app.clear_logs()
-        try:
-            self._app.clear_progress()
-        except Exception:
-            pass
-        try:
-            self._app._clear_modded_rows()
-        except Exception:
-            pass
-        self._app.set_status("Ready")
 
     def _open_output_clicked(self) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01

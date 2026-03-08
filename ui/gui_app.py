@@ -13,7 +13,7 @@ from tkinter import filedialog, messagebox
 from config import GUI
 from ui.gui_config_editor import ConfigEditor
 from ui.gui_helpers import FileRowState, format_duration_display, format_size_mb, get_video_duration_seconds
-from ui.gui_output_rows import output_row_create
+from ui.gui_output_rows import file_grid_cell_create, output_row_create
 from ui.gui_pages import MainPage
 from ui.gui_process_helpers import progress_line_mirror_should, result_line_paths_parse
 from ui.gui_settings_page import SettingsPage
@@ -40,6 +40,7 @@ class AVCleanerGUI(tk.Tk):
             "accent_font": str(GUI.get("ui_accent_font_color", neon_green)),
             "accent_line": str(GUI.get("ui_accent_line_color", neon_green)),
         }
+        self._panel_outline_thickness = 1
 
         self._palette = {
             "bg": "#0B0D10",
@@ -99,7 +100,7 @@ class AVCleanerGUI(tk.Tk):
         outer = tk.Frame(
             parent,
             bg=self._palette["panel"],
-            highlightthickness=1,
+            highlightthickness=self._panel_outline_thickness,
             highlightbackground=self._ui_colors["accent_line"],
             highlightcolor=self._ui_colors["accent_line"],
             relief="flat",
@@ -219,7 +220,9 @@ class AVCleanerGUI(tk.Tk):
         self._nav_main_btn = self._make_btn(nav, "MAIN", lambda: self.show_page("main"), kind="secondary")
         self._nav_main_btn.pack(side="left", padx=(0, 10))
         self._nav_settings_btn = self._make_btn(nav, "SETTINGS", lambda: self.show_page("settings"), kind="secondary")
-        self._nav_settings_btn.pack(side="left")
+        self._nav_settings_btn.pack(side="left", padx=(0, 10))
+        self._nav_restart_btn = self._make_btn(nav, "RESTART APP", self._restart_app, kind="secondary")
+        self._nav_restart_btn.pack(side="left")
 
         # Status bar
         status = tk.Frame(self, bg=self._palette["panel2"], highlightthickness=2, highlightbackground=self._palette["edge2"])
@@ -247,6 +250,30 @@ class AVCleanerGUI(tk.Tk):
 
     def set_status(self, text: str) -> None:
         self._status_var.set(text)
+
+    # Created by gpt-5.4 | 2026-03-08
+    def _restart_app(self) -> None:
+        """Launch a fresh GUI process, then close the current window.
+
+        This mirrors the user's manual workflow of closing the app and running
+        `python app.py` again from the project root.
+        """
+
+        restart_cmd = [sys.executable, "app.py"]
+
+        try:
+            self.append_log("[GUI] Restarting app...\n")
+        except Exception:
+            pass
+
+        try:
+            subprocess.Popen(restart_cmd, cwd=str(self._project_dir))
+        except Exception as exc:
+            self.set_status("Restart failed")
+            messagebox.showerror("Restart failed", f"Could not restart app.\n\n{exc}")
+            return
+
+        self.destroy()
 
     def clear_logs(self) -> None:
         self._log_queue.put("__CLEAR__")
@@ -397,21 +424,33 @@ class AVCleanerGUI(tk.Tk):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _create_file_row(self, parent: tk.Widget, row_index: int, role: str, *, button_text: str | None = None) -> None:
+        # Modified by gpt-5.4 | 2026-03-08
         # Modified by gpt-5.4 | 2026-03-07
+        role_parent = parent
+        file_parent = parent
+        size_parent = parent
+        length_parent = parent
+
+        if getattr(parent, "_files_grid_enabled", False):
+            role_parent = file_grid_cell_create(self, parent, row_index, 0, sticky="nsew")
+            file_parent = file_grid_cell_create(self, parent, row_index, 1, sticky="nsew")
+            size_parent = file_grid_cell_create(self, parent, row_index, 2, sticky="nsew")
+            length_parent = file_grid_cell_create(self, parent, row_index, 3, sticky="nsew")
+
         browse_btn = self._make_btn(
-            parent,
+            role_parent,
             button_text or "BROWSE",
             command=lambda r=role: self._select_file(r),
             kind="secondary",
         )
-        browse_btn.grid(row=row_index, column=0, padx=8, pady=6, sticky="w")
+        browse_btn.pack(anchor="w", padx=8, pady=6)
 
         file_var = tk.StringVar(value="")
         size_var = tk.StringVar(value="")
         length_var = tk.StringVar(value="")
 
-        file_cell = tk.Frame(parent, bg=self._palette["panel"])
-        file_cell.grid(row=row_index, column=1, padx=8, pady=6, sticky="ew")
+        file_cell = tk.Frame(file_parent, bg=self._palette["panel"])
+        file_cell.pack(fill="both", expand=True, padx=8, pady=6)
         file_cell.columnconfigure(1, weight=1)
 
         play_btn = tk.Button(
@@ -447,21 +486,21 @@ class AVCleanerGUI(tk.Tk):
             fg=self._palette["text"],
         ).grid(row=0, column=1, sticky="ew")
         tk.Label(
-            parent,
+            size_parent,
             textvariable=size_var,
             anchor="w",
             font=self._mono(),
             bg=self._palette["panel"],
             fg=self._palette["muted"],
-        ).grid(row=row_index, column=2, padx=8, pady=6, sticky="w")
+        ).pack(anchor="w", padx=8, pady=6)
         tk.Label(
-            parent,
+            length_parent,
             textvariable=length_var,
             anchor="w",
             font=self._mono(),
             bg=self._palette["panel"],
             fg=self._palette["muted"],
-        ).grid(row=row_index, column=3, padx=8, pady=6, sticky="w")
+        ).pack(anchor="w", padx=8, pady=6)
 
         self._rows[role] = FileRowState(
             path=None,
@@ -473,7 +512,14 @@ class AVCleanerGUI(tk.Tk):
 
     # Created by gpt-5.4 | 2026-03-07
     def _create_output_row(self, parent: tk.Widget, row_index: int, role: str, *, label_text: str) -> None:
-        self._modded_rows[role] = output_row_create(self, parent, row_index, role, label_text=label_text)
+        self._modded_rows[role] = output_row_create(
+            self,
+            parent,
+            row_index,
+            role,
+            label_text=label_text,
+            grid_style=bool(getattr(parent, "_files_grid_enabled", False)),
+        )
 
     # Created by gpt-5.4 | 2026-03-07
     def _play_modded_row(self, role: str) -> None:

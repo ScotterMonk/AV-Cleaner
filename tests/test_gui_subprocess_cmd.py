@@ -189,3 +189,53 @@ def test_run_processing_stops_when_config_reload_fails(monkeypatch, tmp_path):
     assert statuses[-1] == "Config reload failed"
     assert any("Failed to reload config.py" in line for line in log_lines)
     assert messagebox_calls == [("Config load failed", "bad config")]
+
+
+# Created by gpt-5.4 | 2026-03-08
+def test_restart_app_relaunches_gui_and_closes_current_window(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+    log_lines: list[str] = []
+    destroyed = {"value": False}
+
+    def _fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["cwd"] = kwargs.get("cwd")
+        return _FakeProcess(cmd)
+
+    monkeypatch.setattr("ui.gui_app.subprocess.Popen", _fake_popen)
+
+    app = _make_app(tmp_path)
+    app.append_log = lambda line: log_lines.append(line)
+    app.set_status = lambda _status: None
+    app.destroy = lambda: destroyed.__setitem__("value", True)
+
+    app._restart_app()
+
+    assert captured["cmd"] == [sys.executable, "app.py"]
+    assert captured["cwd"] == str(tmp_path)
+    assert destroyed["value"] is True
+    assert log_lines == ["[GUI] Restarting app...\n"]
+
+
+# Created by gpt-5.4 | 2026-03-08
+def test_restart_app_shows_error_when_relaunch_fails(monkeypatch, tmp_path):
+    statuses: list[str] = []
+    messagebox_calls: list[tuple[str, str]] = []
+    destroyed = {"value": False}
+
+    def _fake_popen(cmd, **kwargs):
+        raise OSError("boom")
+
+    monkeypatch.setattr("ui.gui_app.subprocess.Popen", _fake_popen)
+    monkeypatch.setattr("ui.gui_app.messagebox.showerror", lambda title, msg: messagebox_calls.append((title, msg)))
+
+    app = _make_app(tmp_path)
+    app.append_log = lambda _line: None
+    app.set_status = lambda status: statuses.append(status)
+    app.destroy = lambda: destroyed.__setitem__("value", True)
+
+    app._restart_app()
+
+    assert statuses == ["Restart failed"]
+    assert destroyed["value"] is False
+    assert messagebox_calls == [("Restart failed", "Could not restart app.\n\nboom")]
