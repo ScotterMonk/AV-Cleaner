@@ -3,6 +3,11 @@
 Run: python app.py
 """
 
+from utils.env_loader import env_file_load
+
+
+env_file_load()
+
 from ui.gui_app import main
 
 

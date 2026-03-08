@@ -5,6 +5,8 @@ import tkinter as tk
 from tkinter import messagebox
 
 from ui.gui_config_editor import ConfigEditor
+from ui.video_player_picker import video_player_pick
+from utils.video_player_discovery import video_player_discover, video_player_platform_label
 
 
 # Settings page layout tuning
@@ -45,6 +47,7 @@ class SettingsPage(tk.Frame):
 
         self._reload()
 
+    # Modified by gpt-5.4 | 2026-03-07
     def _build_gui_form(self, parent: tk.Frame) -> None:
         app = self._app
         self._vars: dict[str, tk.StringVar] = {
@@ -57,6 +60,7 @@ class SettingsPage(tk.Frame):
             "font_mono_family": tk.StringVar(),
             "font_mono_size": tk.StringVar(),
             "button_height": tk.StringVar(),
+            "default_video_player": tk.StringVar(),
             # Accent colors (split for easy theming)
             "ui_button_caption_color": tk.StringVar(),
             "ui_accent_font_color": tk.StringVar(),
@@ -96,6 +100,31 @@ class SettingsPage(tk.Frame):
         add_row("Mono family", "font_mono_family")
         add_row("Mono size", "font_mono_size")
         add_row("Button height", "button_height")
+
+        player_row = tk.Frame(parent, bg=app._palette["panel"])
+        player_row.pack(fill="x", pady=SETTINGS_GUI_FIELD_ROW_GAP_PX)
+        tk.Label(
+            player_row,
+            text="Default Video Player",
+            font=app._mono(weight="bold"),
+            bg=app._palette["panel"],
+            fg=app._palette["muted"],
+        ).pack(side="left")
+        app._make_btn(player_row, "SCAN", self._scan_default_video_player, kind="secondary").pack(side="right")
+        player_ent = tk.Entry(
+            player_row,
+            textvariable=self._vars["default_video_player"],
+            font=app._mono(),
+            bg=app._palette["panel2"],
+            fg=app._palette["text"],
+            insertbackground=app._ui_colors["accent_line"],
+            relief="flat",
+            highlightthickness=2,
+            highlightbackground=app._palette["edge2"],
+            highlightcolor=app._ui_colors["accent_line"],
+        )
+        player_ent.pack(side="right", fill="x", expand=True, padx=(12, 8))
+
         add_row("Button caption color", "ui_button_caption_color")
         add_row("Accent font color", "ui_accent_font_color")
         add_row("Accent line color", "ui_accent_line_color")
@@ -104,6 +133,8 @@ class SettingsPage(tk.Frame):
             parent,
             text=(
                 "These values are written into the GUI dict in config.py.\n"
+                "SCAN detects media players for the current operating system.\n"
+                "Choose one, then use SAVE TO config.py to persist it.\n"
                 "Restart GUI to fully apply typography/layout/color changes.\n"
                 "Colors accept #RRGGBB."
             ),
@@ -114,6 +145,27 @@ class SettingsPage(tk.Frame):
         )
         note.pack(anchor="w", pady=(14, 0))
 
+    # Created by gpt-5.4 | 2026-03-07
+    def _scan_default_video_player(self) -> None:
+        options = video_player_discover()
+        if not options:
+            platform_label = video_player_platform_label()
+            messagebox.showinfo(
+                "No media players found",
+                f"No supported media players were found for {platform_label}.",
+            )
+            return
+
+        selected_path = video_player_pick(self, self._app, options)
+        if not selected_path:
+            return
+
+        self._vars["default_video_player"].set(selected_path)
+
+        player_name = Path(selected_path).name
+        self._app.set_status(f"Default video player selected: {player_name}. Click SAVE TO config.py.")
+
+    # Modified by gpt-5.4 | 2026-03-07
     def _build_pipeline_form(self, parent: tk.Frame) -> None:
         app = self._app
         self._pipe_vars: dict[str, tk.BooleanVar] = {}
@@ -122,6 +174,7 @@ class SettingsPage(tk.Frame):
         self._qual_vars: dict[str, tk.StringVar] = {
             "silence_threshold_db": tk.StringVar(value="-45"),
             "max_pause_duration": tk.StringVar(value="2"),
+            "new_pause_duration": tk.StringVar(value="0.5"),
             "silence_window_ms": tk.StringVar(value="100"),
             "spike_threshold_db": tk.StringVar(value="-5"),
             "normalization_standard_target": tk.StringVar(value="-16.0"),
@@ -179,6 +232,7 @@ class SettingsPage(tk.Frame):
         self._pipe_canvas.bind("<Enter>", _bind_mousewheel)
         self._pipe_canvas.bind("<Leave>", _unbind_mousewheel)
 
+    # Modified by gpt-5.4 | 2026-03-07
     def _render_pipeline_toggles(self, pipe_cfg: dict, qual_presets: dict) -> None:
         app = self._app
         for c in self._pipe_container.winfo_children():
@@ -192,6 +246,7 @@ class SettingsPage(tk.Frame):
         # Load quality-preset settings
         self._qual_vars["silence_threshold_db"].set(str(preset.get("silence_threshold_db", -45)))
         self._qual_vars["max_pause_duration"].set(str(preset.get("max_pause_duration", 2)))
+        self._qual_vars["new_pause_duration"].set(str(preset.get("new_pause_duration", 0.5)))
         self._qual_vars["silence_window_ms"].set(str(preset.get("silence_window_ms", 100)))
         self._qual_vars["spike_threshold_db"].set(str(preset.get("spike_threshold_db", -5)))
 
@@ -271,6 +326,7 @@ class SettingsPage(tk.Frame):
         qual_sec = mk_section("QUALITY PRESETS")
         mk_kv_row(qual_sec, "Silence threshold (dB)", self._qual_vars["silence_threshold_db"], width=10)
         mk_kv_row(qual_sec, "Max pause duration (sec)", self._qual_vars["max_pause_duration"], width=10)
+        mk_kv_row(qual_sec, "New pause duration (sec)", self._qual_vars["new_pause_duration"], width=10)
         mk_kv_row(qual_sec, "Silence window (ms)", self._qual_vars["silence_window_ms"], width=10)
         mk_kv_row(qual_sec, "Spike threshold (dB)", self._qual_vars["spike_threshold_db"], width=10)
 
@@ -395,6 +451,7 @@ class SettingsPage(tk.Frame):
         )
         note.pack(anchor="w", pady=(14, 0))
 
+    # Modified by gpt-5.4 | 2026-03-07
     def _reload(self) -> None:
         try:
             gui_dict, pipe_cfg, qual_presets = ConfigEditor.load_gui_and_pipeline(self._config_path)
@@ -407,6 +464,8 @@ class SettingsPage(tk.Frame):
         self._render_pipeline_toggles(pipe_cfg, qual_presets)
         self._app.set_status("Settings loaded")
 
+    # Modified by gpt-5.4 | 2026-03-07
+    # Modified by gpt-5.4 | 2026-03-07
     def _save(self) -> None:
         def to_int(key: str) -> int:
             raw = self._vars[key].get().strip()
@@ -434,6 +493,7 @@ class SettingsPage(tk.Frame):
                 "font_mono_family": self._vars["font_mono_family"].get().strip() or "Cascadia Mono",
                 "font_mono_size": to_int("font_mono_size"),
                 "button_height": to_int("button_height"),
+                "default_video_player": self._vars["default_video_player"].get().strip(),
                 "ui_button_caption_color": to_color("ui_button_caption_color"),
                 "ui_accent_font_color": to_color("ui_accent_font_color"),
                 "ui_accent_line_color": to_color("ui_accent_line_color"),
@@ -478,6 +538,9 @@ class SettingsPage(tk.Frame):
             )
             preset["max_pause_duration"] = to_float_s(
                 self._qual_vars["max_pause_duration"], "Max pause duration (sec)"
+            )
+            preset["new_pause_duration"] = to_float_s(
+                self._qual_vars["new_pause_duration"], "New pause duration (sec)"
             )
             preset["silence_window_ms"] = to_int_s(self._qual_vars["silence_window_ms"], "Silence window (ms)")
             preset["spike_threshold_db"] = to_int_s(self._qual_vars["spike_threshold_db"], "Spike threshold (dB)")
