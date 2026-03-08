@@ -1,0 +1,38 @@
+[RUN START] FULL_PIPELINE
+[RUN START] FULL_PIPELINE
+[RUN SUMMARY] ORIGINAL FILES - Host length: N/A, Guest length: N/A
+[RUN SUMMARY] ORIGINAL FILES - Host length: N/A, Guest length: N/A
+[RUN SUMMARY] PROCESSED FILES - Host length: N/A, Guest length: N/A
+[RUN SUMMARY] PROCESSED FILES - Host length: N/A, Guest length: N/A
+[RUN COMPLETE] FULL_PIPELINE - Duration: 00:00:00.001
+[RUN COMPLETE] FULL_PIPELINE - Duration: 00:00:00.001
+[SUBFUNCTION START] Pad end of shorter video (host) to fit longer video length
+[SUBFUNCTION START] Pad end of shorter video (host) to fit longer video length
+[PREFLIGHT COMPLETE] Padded shorter video (host) to fit longer video - Preflight pair written to 00:10 duration - Completed in 00:00:00.0
+[PREFLIGHT COMPLETE] Padded shorter video (host) to fit longer video - Preflight pair written to 00:10 duration - Completed in 00:00:00.0
+[SUBFUNCTION COMPLETE] Pad end of shorter video (host) to fit longer video length
+[SUBFUNCTION COMPLETE] Pad end of shorter video (host) to fit longer video length
+[SUBFUNCTION START] Normalize Guest Audio
+[SUBFUNCTION START] Normalize Guest Audio
+[SUBFUNCTION COMPLETE] Normalize Guest Audio
+[SUBFUNCTION COMPLETE] Normalize Guest Audio
+[DETAIL] Guest audio adjusted: +12.0 dB
+[DETAIL] Guest audio adjusted: +12.0 dB
+[SUBFUNCTION START] Remove audio spikes
+[SUBFUNCTION START] Remove audio spikes
+[SUBFUNCTION COMPLETE] Remove audio spikes
+[SUBFUNCTION COMPLETE] Remove audio spikes
+[DETAIL] Fixed 1 audio spike(s) in guest video
+[DETAIL] Fixed 1 audio spike(s) in guest video
+[SUBFUNCTION START] Normalize Guest Audio
+[SUBFUNCTION START] Normalize Guest Audio
+[SUBFUNCTION COMPLETE] Normalize Guest Audio
+[SUBFUNCTION COMPLETE] Normalize Guest Audio
+[DETAIL] Guest audio adjusted (estimated): +14.0 dB
+[DETAIL] Guest audio adjusted (estimated): +14.0 dB
+[SUBFUNCTION START] Remove audio spikes
+[SUBFUNCTION START] Remove audio spikes
+[SUBFUNCTION COMPLETE] Remove audio spikes
+[SUBFUNCTION COMPLETE] Remove audio spikes
+[DETAIL] Fixed 1 audio spike(s) in guest video
+[DETAIL] Fixed 1 audio spike(s) in guest video
