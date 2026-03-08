@@ -42,6 +42,18 @@ class _FakeThread:
         self._target()
 
 
+def _make_app(tmp_path):
+    app = object.__new__(AVCleanerGUI)
+    app._proc = None
+    app._project_dir = tmp_path
+    app._pages = {}
+    app.after = lambda _delay, callback, *args: callback(*args)
+    app._set_row_for_path = lambda *_args: None
+    app._set_modded_row_for_path = lambda *_args: None
+    app._clear_modded_rows = lambda: None
+    return app
+
+
 # Modified by gpt-5.4 | 2026-03-07
 def test_run_processing_uses_process_subcommand(monkeypatch, tmp_path):
     captured: dict[str, object] = {}
@@ -53,19 +65,14 @@ def test_run_processing_uses_process_subcommand(monkeypatch, tmp_path):
 
     monkeypatch.setattr("ui.gui_app.subprocess.Popen", _fake_popen)
     monkeypatch.setattr("ui.gui_app.threading.Thread", _FakeThread)
+    monkeypatch.setattr("ui.gui_app.ConfigEditor.load_gui_and_pipeline", lambda _path: ({}, {}, {}))
 
-    app = object.__new__(AVCleanerGUI)
-    app._proc = None
-    app._project_dir = tmp_path
+    app = _make_app(tmp_path)
     app.clear_logs = lambda: None
     app.clear_progress = lambda: None
     app.set_status = lambda _status: None
     app.append_log = lambda _line: None
     app.append_progress = lambda _line: None
-    app.after = lambda _delay, callback, *args: callback(*args)
-    app._set_row_for_path = lambda *_args: None
-    app._set_modded_row_for_path = lambda *_args: None
-    app._clear_modded_rows = lambda: None
 
     app.run_processing("host.mp4", "guest.mp4")
 
@@ -95,18 +102,14 @@ def test_run_processing_updates_modded_rows_from_result_line(monkeypatch, tmp_pa
     monkeypatch.setattr("ui.gui_app.subprocess.Popen", _fake_popen)
     monkeypatch.setattr("ui.gui_app.threading.Thread", _FakeThread)
     monkeypatch.setattr("ui.gui_app.os.path.exists", lambda _path: True)
+    monkeypatch.setattr("ui.gui_app.ConfigEditor.load_gui_and_pipeline", lambda _path: ({}, {}, {}))
 
-    app = object.__new__(AVCleanerGUI)
-    app._proc = None
-    app._project_dir = tmp_path
+    app = _make_app(tmp_path)
     app.clear_logs = lambda: None
     app.clear_progress = lambda: None
-    app._clear_modded_rows = lambda: None
     app.set_status = lambda _status: None
     app.append_log = lambda _line: None
     app.append_progress = lambda _line: None
-    app.after = lambda _delay, callback, *args: callback(*args)
-    app._set_row_for_path = lambda *_args: None
     app._set_modded_row_for_path = lambda role, path: captured_updates.append((role, path))
 
     app.run_processing("host.mp4", "guest.mp4")
@@ -115,3 +118,74 @@ def test_run_processing_updates_modded_rows_from_result_line(monkeypatch, tmp_pa
         ("host", "C:\\Videos\\host_processed.mp4"),
         ("guest", "C:\\Videos\\guest_processed.mp4"),
     ]
+
+
+def test_run_processing_reloads_config_before_start(monkeypatch, tmp_path):
+    captured: dict[str, object] = {}
+
+    def _fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return _FakeProcess(cmd)
+
+    reloaded_gui = {"default_video_player": "D:/Apps/VLC/vlc.exe"}
+
+    monkeypatch.setattr("ui.gui_app.subprocess.Popen", _fake_popen)
+    monkeypatch.setattr("ui.gui_app.threading.Thread", _FakeThread)
+    monkeypatch.setattr("ui.gui_app.ConfigEditor.load_gui_and_pipeline", lambda _path: (reloaded_gui, {}, {}))
+
+    app = _make_app(tmp_path)
+    app.clear_logs = lambda: None
+    app.clear_progress = lambda: None
+    app.set_status = lambda _status: None
+    app.append_log = lambda _line: None
+    app.append_progress = lambda _line: None
+
+    original_player = AVCleanerGUI.__module__
+    # Use the imported GUI dict object from ui.gui_app directly.
+    from ui.gui_app import GUI
+
+    old_gui = dict(GUI)
+    try:
+        GUI.clear()
+        GUI.update({"default_video_player": "C:/Old/player.exe"})
+
+        app.run_processing("host.mp4", "guest.mp4")
+
+        assert captured["cmd"][2] == "process"
+        assert GUI["default_video_player"] == reloaded_gui["default_video_player"]
+    finally:
+        GUI.clear()
+        GUI.update(old_gui)
+
+
+def test_run_processing_stops_when_config_reload_fails(monkeypatch, tmp_path):
+    statuses: list[str] = []
+    log_lines: list[str] = []
+    popen_called = {"value": False}
+
+    def _fake_popen(cmd, **kwargs):
+        popen_called["value"] = True
+        return _FakeProcess(cmd)
+
+    monkeypatch.setattr("ui.gui_app.subprocess.Popen", _fake_popen)
+    monkeypatch.setattr("ui.gui_app.threading.Thread", _FakeThread)
+    monkeypatch.setattr(
+        "ui.gui_app.ConfigEditor.load_gui_and_pipeline",
+        lambda _path: (_ for _ in ()).throw(ValueError("bad config")),
+    )
+    messagebox_calls: list[tuple[str, str]] = []
+    monkeypatch.setattr("ui.gui_app.messagebox.showerror", lambda title, msg: messagebox_calls.append((title, msg)))
+
+    app = _make_app(tmp_path)
+    app.clear_logs = lambda: None
+    app.clear_progress = lambda: None
+    app.set_status = lambda status: statuses.append(status)
+    app.append_log = lambda line: log_lines.append(line)
+    app.append_progress = lambda _line: None
+
+    app.run_processing("host.mp4", "guest.mp4")
+
+    assert popen_called["value"] is False
+    assert statuses[-1] == "Config reload failed"
+    assert any("Failed to reload config.py" in line for line in log_lines)
+    assert messagebox_calls == [("Config load failed", "bad config")]

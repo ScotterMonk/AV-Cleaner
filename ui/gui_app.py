@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 from config import GUI
+from ui.gui_config_editor import ConfigEditor
 from ui.gui_helpers import FileRowState, format_duration_display, format_size_mb, get_video_duration_seconds
 from ui.gui_output_rows import output_row_create
 from ui.gui_pages import MainPage
@@ -259,6 +260,30 @@ class AVCleanerGUI(tk.Tk):
     def append_progress(self, text: str) -> None:
         self._progress_queue.put(text)
 
+    # Created by gpt-5.4 | 2026-03-08
+    def _reload_runtime_settings(self) -> bool:
+        """Refresh config-backed GUI settings from `config.py` before a run starts."""
+
+        config_path = self._project_dir / "config.py"
+        try:
+            gui_dict, _pipe_cfg, _qual_presets = ConfigEditor.load_gui_and_pipeline(config_path)
+        except Exception as exc:
+            self.append_log(f"[GUI] Failed to reload config.py: {exc}\n")
+            self.set_status("Config reload failed")
+            messagebox.showerror("Config load failed", str(exc))
+            return False
+
+        # Keep the imported GUI dict object current so later runtime lookups use the
+        # latest values without requiring a full GUI restart.
+        GUI.clear()
+        GUI.update(gui_dict)
+
+        settings_page = self._pages.get("settings")
+        if settings_page is not None and hasattr(settings_page, "_reload"):
+            settings_page._reload()
+
+        return True
+
     def _poll_log_queue(self) -> None:
         try:
             while True:
@@ -295,10 +320,14 @@ class AVCleanerGUI(tk.Tk):
         self.clear_logs()
         self.clear_progress()
         self._clear_modded_rows()
-        self.set_status("Running…")
 
         # Reset FFmpeg progress line counter for new process
         reset_progress_counter()
+
+        if not self._reload_runtime_settings():
+            return
+
+        self.set_status("Running…")
 
         # Progress header is now always visible (no need to show it here)
 

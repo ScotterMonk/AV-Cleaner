@@ -4,11 +4,13 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Any
 
 @dataclass
+# Modified by gpt-5.4 | 2026-03-08
 class AudioFilter:
     filter_name: str
     params: Dict[str, Any]
 
 @dataclass
+# Modified by gpt-5.4 | 2026-03-08
 class EditManifest:
     """
     The recipe for the final video.
@@ -43,6 +45,9 @@ class EditManifest:
     # ── Word-removal bookkeeping ───────────────────────────────────────────
     # Original-timeline word segments removed by WordRemover (for logging).
     word_removals: List[Tuple[float, float]] = field(default_factory=list)
+
+    # Structured per-track word-removal details for GUI/console reporting.
+    word_removal_details: List[Dict[str, Any]] = field(default_factory=list)
 
     # True when the word-removal processor ran (even if zero words detected).
     word_removal_applied: bool = False

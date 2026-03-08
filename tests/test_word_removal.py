@@ -192,6 +192,177 @@ class TestWordRemover:
         )
         assert manifest.word_removals == [(2.0, 2.3)]
 
+    def test_word_removal_details_bookkeeping(self):
+        from core.interfaces import EditManifest
+        from processors.word_remover import WordRemover
+
+        processor = WordRemover({})
+        manifest = processor.process(
+            EditManifest(),
+            _mock_audio(10.0),
+            _mock_audio(10.0),
+            {
+                "filler_word_detector": [
+                    {"track": "host", "text": "uh", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.97},
+                    {"track": "guest", "text": "you know", "start_sec": 4.0, "end_sec": 4.4, "confidence": 0.81},
+                ]
+            },
+        )
+        assert manifest.word_removals == [(2.0, 2.3), (4.0, 4.4)]
+        assert manifest.word_removal_details == [
+            {"track": "host", "text": "uh", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.97, "action": "cut"},
+            {"track": "guest", "text": "you know", "start_sec": 4.0, "end_sec": 4.4, "confidence": 0.81, "action": "cut"},
+        ]
+
+    def test_word_on_host_mutes_when_guest_not_silent(self):
+        from core.interfaces import EditManifest
+        from processors.word_remover import WordRemover
+
+        class _AudioSlice:
+            def __init__(self, dbfs):
+                self.dBFS = dbfs
+
+            def __len__(self):
+                return 100
+
+        class _AudioWithDb:
+            def __init__(self, duration, dbfs):
+                self.duration_seconds = duration
+                self._dbfs = dbfs
+
+            def __getitem__(self, key):
+                return _AudioSlice(self._dbfs)
+
+        processor = WordRemover({"silence_threshold_db": -30})
+        manifest = processor.process(
+            EditManifest(),
+            _AudioWithDb(10.0, -80.0),
+            _AudioWithDb(10.0, -15.0),
+            {
+                "filler_word_detector": [
+                    {"track": "host", "text": "um", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.99},
+                ]
+            },
+        )
+        assert manifest.word_removals == []
+        assert manifest.keep_segments == []
+        assert [f.filter_name for f in manifest.host_filters] == ["volume"]
+        assert manifest.host_filters[0].params == {"volume": 0, "enable": "between(t,2.000,2.300)"}
+        assert manifest.word_removal_details == [
+            {"track": "host", "text": "um", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.99, "action": "mute"},
+        ]
+
+    def test_word_on_guest_cuts_when_host_silent(self):
+        from core.interfaces import EditManifest
+        from processors.word_remover import WordRemover
+
+        class _AudioSlice:
+            def __init__(self, dbfs):
+                self.dBFS = dbfs
+
+            def __len__(self):
+                return 100
+
+        class _AudioWithDb:
+            def __init__(self, duration, dbfs):
+                self.duration_seconds = duration
+                self._dbfs = dbfs
+
+            def __getitem__(self, key):
+                return _AudioSlice(self._dbfs)
+
+        processor = WordRemover({"silence_threshold_db": -30})
+        manifest = processor.process(
+            EditManifest(),
+            _AudioWithDb(10.0, -80.0),
+            _AudioWithDb(10.0, -80.0),
+            {
+                "filler_word_detector": [
+                    {"track": "guest", "text": "um", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.99},
+                ]
+            },
+        )
+        assert manifest.word_removals == [(2.0, 2.3)]
+        assert manifest.keep_segments == [(0.0, 2.0), (2.3, 10.0)]
+        assert manifest.guest_filters == []
+        assert manifest.word_removal_details == [
+            {"track": "guest", "text": "um", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.99, "action": "cut"},
+        ]
+
+    def test_word_on_host_skipped_when_confidence_below_host_threshold(self):
+        from core.interfaces import EditManifest
+        from processors.word_remover import WordRemover
+
+        class _AudioSlice:
+            def __init__(self, dbfs):
+                self.dBFS = dbfs
+
+            def __len__(self):
+                return 100
+
+        class _AudioWithDb:
+            def __init__(self, duration, dbfs):
+                self.duration_seconds = duration
+                self._dbfs = dbfs
+
+            def __getitem__(self, key):
+                return _AudioSlice(self._dbfs)
+
+        processor = WordRemover({"silence_threshold_db": -30})
+        manifest = processor.process(
+            EditManifest(),
+            _AudioWithDb(10.0, -80.0),
+            _AudioWithDb(10.0, -80.0),
+            {
+                "filler_word_detector": [
+                    {"track": "host", "text": "um", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.99},
+                ]
+            },
+        )
+        assert manifest.word_removals == []
+        assert manifest.keep_segments == []
+        assert manifest.host_filters == []
+        assert manifest.word_removal_details == [
+            {"track": "host", "text": "um", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.99, "action": "skip"},
+        ]
+
+    def test_word_on_guest_skipped_when_confidence_below_guest_threshold(self):
+        from core.interfaces import EditManifest
+        from processors.word_remover import WordRemover
+
+        class _AudioSlice:
+            def __init__(self, dbfs):
+                self.dBFS = dbfs
+
+            def __len__(self):
+                return 100
+
+        class _AudioWithDb:
+            def __init__(self, duration, dbfs):
+                self.duration_seconds = duration
+                self._dbfs = dbfs
+
+            def __getitem__(self, key):
+                return _AudioSlice(self._dbfs)
+
+        processor = WordRemover({"silence_threshold_db": -30})
+        manifest = processor.process(
+            EditManifest(),
+            _AudioWithDb(10.0, -80.0),
+            _AudioWithDb(10.0, -80.0),
+            {
+                "filler_word_detector": [
+                    {"track": "guest", "text": "um", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.92},
+                ]
+            },
+        )
+        assert manifest.word_removals == []
+        assert manifest.keep_segments == []
+        assert manifest.guest_filters == []
+        assert manifest.word_removal_details == [
+            {"track": "guest", "text": "um", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.92, "action": "skip"},
+        ]
+
     def test_get_name(self):
         from processors.word_remover import WordRemover
         assert WordRemover({}).get_name() == "WordRemover"
@@ -314,3 +485,20 @@ class TestFillerWordDetectorFindMatches:
         assert len(matches) == 2
         assert (0.0, 0.4) in matches
         assert (1.0, 1.3) in matches
+
+    def test_detailed_matches_include_track_and_phrase(self):
+        det = self._detector()
+        words = [
+            self._word("you", 1000, 1200),
+            self._word("know", 1200, 1500),
+        ]
+        matches = det._find_matches_detailed(words, ["you know"], "guest")
+        assert matches == [
+            {
+                "track": "guest",
+                "text": "you know",
+                "start_sec": 1.0,
+                "end_sec": 1.5,
+                "confidence": 0.9,
+            }
+        ]

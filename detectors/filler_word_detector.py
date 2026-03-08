@@ -11,7 +11,7 @@
 import os
 import tempfile
 import time
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import requests
 
@@ -25,6 +25,7 @@ logger = get_logger(__name__)
 _POLL_INTERVAL_SEC = 3
 
 
+# Modified by gpt-5.4 | 2026-03-08
 class FillerWordDetector(BaseDetector):
     """
     Transcribes both audio tracks via AssemblyAI and returns the time ranges
@@ -39,7 +40,8 @@ class FillerWordDetector(BaseDetector):
 
     # ── Public interface ───────────────────────────────────────────────────
 
-    def detect(self, host_audio, guest_audio) -> List[Tuple[float, float]]:
+    # Modified by gpt-5.4 | 2026-03-08
+    def detect(self, host_audio, guest_audio) -> List[Dict[str, Any]]:
         """
         Transcribe both tracks and return merged word-removal ranges.
 
@@ -72,17 +74,20 @@ class FillerWordDetector(BaseDetector):
         )
 
         headers = {"authorization": api_key}
-        segments: List[Tuple[float, float]] = []
+        segments: List[Dict[str, Any]] = []
 
         for label, audio in (("host", host_audio), ("guest", guest_audio)):
             track_segments = self._process_track(label, audio, target_words, base_url, headers)
             logger.info(
                 "[FillerWordDetector] %s track: %d match(es) found.", label, len(track_segments)
             )
-            for start_s, end_s in track_segments:
+            for match in track_segments:
                 logger.info(
                     "[FillerWordDetector]   → %s %.3fs–%.3fs (%.0fms)",
-                    label, start_s, end_s, (end_s - start_s) * 1000,
+                    label,
+                    match["start_sec"],
+                    match["end_sec"],
+                    (match["end_sec"] - match["start_sec"]) * 1000,
                 )
             segments.extend(track_segments)
 
@@ -97,6 +102,7 @@ class FillerWordDetector(BaseDetector):
 
     # ── Private helpers ────────────────────────────────────────────────────
 
+    # Modified by gpt-5.4 | 2026-03-08
     def _process_track(
         self,
         label: str,
@@ -104,14 +110,14 @@ class FillerWordDetector(BaseDetector):
         target_words: List[str],
         base_url: str,
         headers: dict,
-    ) -> List[Tuple[float, float]]:
+    ) -> List[Dict[str, Any]]:
         """Export one pydub AudioSegment, upload it, transcribe, return matches."""
         temp_path = None
         try:
             temp_path = self._export_to_temp_mp3(audio, label)
             audio_url = self._upload_audio(temp_path, base_url, headers, label)
             transcript_words = self._transcribe(audio_url, base_url, headers, label)
-            return self._find_matches(transcript_words, target_words)
+            return self._find_matches_detailed(transcript_words, target_words, label)
         except Exception as exc:
             logger.error("[FillerWordDetector] %s track failed: %s", label, exc)
             return []
@@ -194,9 +200,25 @@ class FillerWordDetector(BaseDetector):
             logger.debug("[FillerWordDetector] %s status=%s, retrying in %ds…", label, status, _POLL_INTERVAL_SEC)
             time.sleep(_POLL_INTERVAL_SEC)
 
+    # Modified by gpt-5.4 | 2026-03-08
     def _find_matches(
         self, words: List[dict], target_phrases: List[str]
     ) -> List[Tuple[float, float]]:
+        """Return phrase matches as (start_sec, end_sec) tuples."""
+
+        detailed_matches = self._find_matches_detailed(words, target_phrases, track=None)
+        return [
+            (match["start_sec"], match["end_sec"])
+            for match in detailed_matches
+        ]
+
+    # Created by gpt-5.4 | 2026-03-08
+    def _find_matches_detailed(
+        self,
+        words: List[dict],
+        target_phrases: List[str],
+        track: str | None,
+    ) -> List[Dict[str, Any]]:
         """
         Scan the word list for any phrase in target_phrases.
 
@@ -206,7 +228,7 @@ class FillerWordDetector(BaseDetector):
         All timestamps from the API are in milliseconds; the returned tuples
         are in seconds.
         """
-        matches: List[Tuple[float, float]] = []
+        matches: List[Dict[str, Any]] = []
 
         for phrase in target_phrases:
             tokens = phrase.lower().split()
@@ -220,7 +242,16 @@ class FillerWordDetector(BaseDetector):
                     # Timestamps are in milliseconds — convert to seconds
                     start_sec = window[0]["start"] / 1000.0
                     end_sec = window[-1]["end"] / 1000.0
-                    matches.append((start_sec, end_sec))
+                    confidence_values = [float(w.get("confidence", 0.0) or 0.0) for w in window]
+                    matches.append(
+                        {
+                            "track": track,
+                            "text": phrase,
+                            "start_sec": start_sec,
+                            "end_sec": end_sec,
+                            "confidence": min(confidence_values) if confidence_values else 0.0,
+                        }
+                    )
                     logger.info(
                         "[FillerWordDetector] Matched word %r at %.3f–%.3fs",
                         phrase,
