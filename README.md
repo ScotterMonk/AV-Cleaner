@@ -5,27 +5,31 @@ by Scott Howard Swain
 Automates “cleaning” of synchronized dual-video recordings (host + guest) while keeping host/guest perfectly aligned.
 
 Features:
-- Normalizes guest loudness to match the host (or to a standard LUFS target).
-- Reduces loud spikes in the guest track above a configured threshold.
-- Shortens long mutual-silence pauses to a configurable minimum duration by removing only the excess.
-- Maintains sync by applying the same keep/remove decisions to both videos.
+- **Removes filler words**: Detects configured filler words from `config.py` and mutes them during processing. Depending on length of silence (including surrounding silence), the muted area may be cut in the `Cuts pauses` step.
+- **Normalizes guest loudness** to match the host (or to a standard LUFS target).
+- **Reduces volume spikes** in the guest track above a configured threshold.
+- **Cuts pauses**: Shortens long mutual-silence pauses to a configurable minimum duration by removing the excess.
+- **Maintains sync** by applying the same keep/remove decisions to both videos.
 
 Notes:
-- The processing pipeline is plugin-based for easier extension (for example, future filler-word removal).
-- Most behavior is controlled via `config.py`.
+- The processing pipeline is detector/processor-based so behavior can be extended without rewriting the full flow.
+- Most behavior is controlled via `config.py`, including enabled processors and the filler words list.
 
 ```mermaid
 flowchart LR
     A[Probe media] --> B[Detect events]
-    B --> C[Build edit plan]
-    C --> D[Render host output]
-    C --> E[Render guest output]
-    D --> F[Aligned processed pair]
-    E --> F
+    B --> C[Mute filler words]
+    C --> D[Cut pauses]
+    D --> E[Normalize guest loudness]
+    E --> F[Reduce guest volume spikes]
+    F --> G[Render host output]
+    F --> H[Render guest output]
+    G --> I[Aligned processed pair]
+    H --> I
 ```
 
 ## Requirements
-1) Python 3.x
+1) Python >= 3.13
 2) FFmpeg available on PATH
 
 ## Install
@@ -37,7 +41,7 @@ flowchart LR
 3) Override normalization mode: `python main.py process --host ... --guest ... --norm-mode MATCH_HOST|STANDARD_LUFS`
 
 ## Configuration
-Edit `config.py` to change thresholds (spikes/silence), normalization behavior, and rendering options.
+Edit `config.py` to change thresholds (spikes/silence), normalization behavior, rendering options, enabled processors, and the filler words to detect/mute.
 
 ## Secrets
 - Keep non-secret app behavior in `config.py`.

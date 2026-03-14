@@ -15,10 +15,11 @@ from ui.gui_config_editor import ConfigEditor
 from ui.gui_helpers import FileRowState, format_duration_display, format_size_mb, get_video_duration_seconds
 from ui.gui_output_rows import file_grid_cell_create, output_row_create
 from ui.gui_pages import MainPage
-from ui.gui_process_helpers import progress_line_mirror_should, result_line_paths_parse
+from ui.gui_process_helpers import progress_line_mirror_should, progress_line_transform, result_line_paths_parse
 from ui.gui_settings_page import SettingsPage
 from ui.gui_ffmpeg_formatter import format_ffmpeg_progress_line, should_show_progress_line, reset_progress_counter
 from ui.gui_outputs import save_fixed_outputs as gui_save_fixed_outputs
+from utils.processing_alert import processing_complete_alert_play
 from utils.path_helpers import make_processed_output_path
 from utils.video_player_launch import video_player_open
 
@@ -79,6 +80,15 @@ class AVCleanerGUI(tk.Tk):
         self._log_queue: Queue[str] = Queue()
         self._progress_queue: Queue[str] = Queue()
         self._proc: subprocess.Popen | None = None
+
+        # Processing control state
+        self._proc_paused: bool = False
+        self._proc_stop_requested: bool = False
+
+        # Button references registered by MainPage after build
+        self._proc_process_btn: tk.Button | None = None
+        self._proc_pause_btn: tk.Button | None = None
+        self._proc_stop_btn: tk.Button | None = None
 
         self._build_shell()
         self._poll_log_queue()
@@ -278,14 +288,19 @@ class AVCleanerGUI(tk.Tk):
     def clear_logs(self) -> None:
         self._log_queue.put("__CLEAR__")
 
+    def _gui_line_sanitize(self, text: str) -> str:
+        """Remove redundant logging level text from GUI-only display lines."""
+
+        return text.replace(" - INFO - ", " ")
+
     def append_log(self, text: str) -> None:
-        self._log_queue.put(text)
+        self._log_queue.put(self._gui_line_sanitize(text))
 
     def clear_progress(self) -> None:
         self._progress_queue.put("__CLEAR__")
 
     def append_progress(self, text: str) -> None:
-        self._progress_queue.put(text)
+        self._progress_queue.put(self._gui_line_sanitize(text))
 
     # Created by gpt-5.4 | 2026-03-08
     def _reload_runtime_settings(self) -> bool:
@@ -337,6 +352,151 @@ class AVCleanerGUI(tk.Tk):
             pass
         self.after(60, self._poll_log_queue)
 
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def register_action_buttons(
+        self,
+        process_btn: tk.Button,
+        pause_btn: tk.Button,
+        stop_btn: tk.Button,
+    ) -> None:
+        """Called by MainPage after building buttons so the app can update them."""
+        self._proc_process_btn = process_btn
+        self._proc_pause_btn = pause_btn
+        self._proc_stop_btn = stop_btn
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def _proc_ui_update(self, running: bool) -> None:
+        """Show/hide Pause+Stop and enable/disable Process to reflect state."""
+        if self._proc_process_btn:
+            self._proc_process_btn.configure(state="disabled" if running else "normal")
+        if self._proc_pause_btn:
+            if running:
+                label = "RESUME" if self._proc_paused else "PAUSE"
+                self._proc_pause_btn.configure(text=label)
+                self._proc_pause_btn.grid()
+            else:
+                self._proc_pause_btn.grid_remove()
+                self._proc_paused = False
+        if self._proc_stop_btn:
+            if running:
+                self._proc_stop_btn.grid()
+            else:
+                self._proc_stop_btn.grid_remove()
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def _proc_tree_suspend(self) -> None:
+        """Suspend the entire subprocess tree (pause all child processes too)."""
+        if not self._proc:
+            return
+        try:
+            import psutil
+            parent = psutil.Process(self._proc.pid)
+            # Suspend children first, then parent
+            for child in parent.children(recursive=True):
+                child.suspend()
+            parent.suspend()
+        except Exception as exc:
+            self.append_log(f"[GUI] Pause failed: {exc}\n")
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def _proc_tree_resume(self) -> None:
+        """Resume the entire suspended subprocess tree."""
+        if not self._proc:
+            return
+        try:
+            import psutil
+            parent = psutil.Process(self._proc.pid)
+            # Resume parent first, then children
+            parent.resume()
+            for child in parent.children(recursive=True):
+                child.resume()
+        except Exception as exc:
+            self.append_log(f"[GUI] Resume failed: {exc}\n")
+
+    # Modified by Claude-Sonnet-4.6 | 2026-03-12
+    def _proc_tree_kill(self) -> None:
+        """Kill the entire subprocess tree, including all child processes.
+
+        On Windows, child processes (e.g. FFmpeg) are NOT automatically killed
+        when their parent Python process dies.  We therefore use the Windows-native
+        `taskkill /F /T /PID` command as the primary path, which atomically
+        terminates the entire process tree with no snapshot race-condition.
+        psutil is kept as a fallback for non-Windows platforms.
+        """
+        if not self._proc:
+            return
+
+        pid = self._proc.pid
+
+        # Primary path on Windows: taskkill /F (force) /T (tree) kills the
+        # parent AND all descendants in one OS call.  This is more reliable
+        # than psutil on Windows because it has no snapshot timing gap.
+        if sys.platform == "win32":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                )
+                return
+            except Exception as exc:
+                self.append_log(f"[GUI] taskkill failed ({exc}); falling back to psutil\n")
+
+        # Non-Windows (or taskkill fallback): walk the tree with psutil.
+        try:
+            import psutil
+            parent = psutil.Process(pid)
+            # Snapshot children BEFORE killing parent so the list is complete.
+            children = parent.children(recursive=True)
+            for child in children:
+                child.kill()
+            parent.kill()
+        except Exception:
+            # Last resort: kills only the direct parent process.
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def pause_processing(self) -> None:
+        """Toggle pause/resume on the running process tree."""
+        if not self._proc or self._proc.poll() is not None:
+            return
+
+        if self._proc_paused:
+            # Currently paused — resume it
+            self._proc_tree_resume()
+            self._proc_paused = False
+            self.set_status("Running…")
+            if self._proc_pause_btn:
+                self._proc_pause_btn.configure(text="PAUSE")
+            self.append_log("[GUI] Processing resumed.\n")
+        else:
+            # Currently running — pause it
+            self._proc_tree_suspend()
+            self._proc_paused = True
+            self.set_status("Paused")
+            if self._proc_pause_btn:
+                self._proc_pause_btn.configure(text="RESUME")
+            self.append_log("[GUI] Processing paused.\n")
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def stop_processing(self) -> None:
+        """Kill the running process tree and reset UI to idle."""
+        if not self._proc or self._proc.poll() is not None:
+            return
+
+        self._proc_stop_requested = True
+
+        # If paused, resume first so the kill signal propagates cleanly
+        if self._proc_paused:
+            self._proc_tree_resume()
+            self._proc_paused = False
+
+        self._proc_tree_kill()
+        self.append_log("[GUI] Processing stopped by user.\n")
+        self.set_status("Stopped")
+
     # Modified by gpt-5.2 | 2026-01-13_01
     def run_processing(self, host_path: str, guest_path: str) -> None:
         # Modified by gpt-5.4 | 2026-03-07
@@ -348,15 +508,16 @@ class AVCleanerGUI(tk.Tk):
         self.clear_progress()
         self._clear_modded_rows()
 
-        # Reset FFmpeg progress line counter for new process
+        # Reset FFmpeg progress line counter + stop-request flag for new run
         reset_progress_counter()
+        self._proc_stop_requested = False
+        self._proc_paused = False
 
         if not self._reload_runtime_settings():
             return
 
         self.set_status("Running…")
-
-        # Progress header is now always visible (no need to show it here)
+        self.after(0, self._proc_ui_update, True)
 
         cmd = [
             sys.executable,
@@ -373,6 +534,10 @@ class AVCleanerGUI(tk.Tk):
         def _worker() -> None:
             _result_host: str | None = None
             _result_guest: str | None = None
+            # Flag: play the completion chime only when processing actually finished
+            # (not when the user manually stopped it). Set exactly once per run so
+            # the alert never fires more than once regardless of code path taken.
+            _play_alert = False
 
             try:
                 self._proc = subprocess.Popen(
@@ -387,7 +552,7 @@ class AVCleanerGUI(tk.Tk):
                 for line in self._proc.stdout:
                     # Format FFmpeg progress lines to align with header columns
                     formatted_line, is_progress = format_ffmpeg_progress_line(line)
-                    
+
                     if is_progress:
                         # Only show every other progress line to reduce console spam
                         if should_show_progress_line(show_every_nth=2):
@@ -396,7 +561,9 @@ class AVCleanerGUI(tk.Tk):
                         # Pass through non-progress lines as-is
                         self.append_log(line)
                         if progress_line_mirror_should(line):
-                            self.append_progress(line)
+                            # Transform line for PROGRESS pane (e.g. truncate filler-word detail).
+                            # The original line is preserved for the CONSOLE above.
+                            self.append_progress(progress_line_transform(line))
 
                     result_host, result_guest = result_line_paths_parse(line)
                     if result_host and result_guest:
@@ -404,7 +571,11 @@ class AVCleanerGUI(tk.Tk):
                         _result_guest = result_guest
 
                 code = self._proc.wait()
-                if code == 0:
+
+                if self._proc_stop_requested:
+                    # User-initiated stop; status already set by stop_processing()
+                    pass
+                elif code == 0:
                     # Use paths emitted by the pipeline, fall back to computed paths.
                     host_processed = _result_host or make_processed_output_path(host_path)
                     guest_processed = _result_guest or make_processed_output_path(guest_path)
@@ -415,11 +586,24 @@ class AVCleanerGUI(tk.Tk):
                         self.after(0, self._set_modded_row_for_path, "guest", guest_processed)
 
                     self.set_status("Done")
+                    _play_alert = True
                 else:
                     self.set_status(f"Failed (exit {code})")
+                    _play_alert = True
             except Exception as e:
                 self.append_log(f"\n[GUI] Failed to run: {e}\n")
                 self.set_status("Failed")
+                _play_alert = True
+            finally:
+                # Always restore buttons to idle state when the worker exits.
+                self.after(0, self._proc_ui_update, False)
+                # Play the completion chime exactly once, directly from the
+                # worker thread.  Calling from here (not via self.after) avoids
+                # coupling the sound to the Tkinter event loop — if the user
+                # closes the window mid-run the chime still plays cleanly and
+                # winsound never queues into a partially-destroyed Tk instance.
+                if _play_alert:
+                    processing_complete_alert_play()
 
         threading.Thread(target=_worker, daemon=True).start()
 

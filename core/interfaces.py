@@ -42,15 +42,15 @@ class EditManifest:
     # True when the pause-removal processor ran (even if zero pauses detected).
     pause_removal_applied: bool = False
 
-    # ── Word-removal bookkeeping ───────────────────────────────────────────
-    # Original-timeline word segments removed by WordRemover (for logging).
-    word_removals: List[Tuple[float, float]] = field(default_factory=list)
+    # ── Word-mute bookkeeping ──────────────────────────────────────────────
+    # Original-timeline word spans muted by WordMuter (for duration logging).
+    word_mutes: List[Tuple[float, float]] = field(default_factory=list)
 
-    # Structured per-track word-removal details for GUI/console reporting.
-    word_removal_details: List[Dict[str, Any]] = field(default_factory=list)
+    # Structured per-track word-mute details for GUI/console reporting.
+    word_mute_details: List[Dict[str, Any]] = field(default_factory=list)
 
-    # True when the word-removal processor ran (even if zero words detected).
-    word_removal_applied: bool = False
+    # True when the word-mute processor ran (even if zero words detected).
+    word_mute_applied: bool = False
 
     # ── Audio filters ──────────────────────────────────────────────────────
     # FFmpeg filters to apply to the Host Track

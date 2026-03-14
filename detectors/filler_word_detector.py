@@ -51,7 +51,8 @@ class FillerWordDetector(BaseDetector):
 
         Returns:
             Combined list of (start_sec, end_sec) tuples from both tracks,
-            unsorted.  Caller (WordRemover) is responsible for sorting/merging.
+            unsorted.  Caller (WordMuter) is responsible for sorting/merging.
+            High-confidence filtering is applied here.
         """
         api_key = os.getenv("AAI_SETTINGS_API_KEY", "").strip()
         base_url = os.getenv("AAI_SETTINGS_BASE_URL", "").strip().rstrip("/")
@@ -59,13 +60,13 @@ class FillerWordDetector(BaseDetector):
         if not api_key or not base_url:
             logger.warning(
                 "[FillerWordDetector] AAI_SETTINGS_API_KEY or AAI_SETTINGS_BASE_URL "
-                "not set — skipping word detection."
+                "not set -- skipping word detection."
             )
             return []
 
         target_words: List[str] = WORDS_TO_REMOVE.get("words_to_remove", [])
         if not target_words:
-            logger.info("[FillerWordDetector] WORDS_TO_REMOVE is empty — nothing to detect.")
+            logger.info("[FillerWordDetector] WORDS_TO_REMOVE is empty -- nothing to detect.")
             return []
 
         logger.info(
@@ -78,17 +79,12 @@ class FillerWordDetector(BaseDetector):
 
         for label, audio in (("host", host_audio), ("guest", guest_audio)):
             track_segments = self._process_track(label, audio, target_words, base_url, headers)
+            muted = [s for s in track_segments if s.get("action") == "mute"]
+            skipped = [s for s in track_segments if s.get("action") == "skipped"]
             logger.info(
-                "[FillerWordDetector] %s track: %d match(es) found.", label, len(track_segments)
+                "[DETAIL] Filler words: %s track — %d found, %d muted, %d skipped",
+                label, len(track_segments), len(muted), len(skipped),
             )
-            for match in track_segments:
-                logger.info(
-                    "[FillerWordDetector]   → %s %.3fs–%.3fs (%.0fms)",
-                    label,
-                    match["start_sec"],
-                    match["end_sec"],
-                    (match["end_sec"] - match["start_sec"]) * 1000,
-                )
             segments.extend(track_segments)
 
         return segments
@@ -117,7 +113,8 @@ class FillerWordDetector(BaseDetector):
             temp_path = self._export_to_temp_mp3(audio, label)
             audio_url = self._upload_audio(temp_path, base_url, headers, label)
             transcript_words = self._transcribe(audio_url, base_url, headers, label)
-            return self._find_matches_detailed(transcript_words, target_words, label)
+            matches = self._find_matches_detailed(transcript_words, target_words, label)
+            return self._filter_by_confidence(matches, label)
         except Exception as exc:
             logger.error("[FillerWordDetector] %s track failed: %s", label, exc)
             return []
@@ -133,12 +130,12 @@ class FillerWordDetector(BaseDetector):
         fd, temp_path = tempfile.mkstemp(suffix=f"_{label}.mp3", prefix="aai_")
         os.close(fd)  # Close OS handle so pydub can open the file for writing
         audio.export(temp_path, format="mp3")
-        logger.debug("[FillerWordDetector] Exported %s audio → %s", label, temp_path)
+        logger.debug("[FillerWordDetector] Exported %s audio -> %s", label, temp_path)
         return temp_path
 
     def _upload_audio(self, file_path: str, base_url: str, headers: dict, label: str) -> str:
         """Upload audio file to AssemblyAI; return the hosted audio URL."""
-        logger.info("[FillerWordDetector] Uploading %s audio to AssemblyAI…", label)
+        logger.info("[DETAIL] Uploading %s audio to AssemblyAI...", label)
         with open(file_path, "rb") as f:
             response = requests.post(f"{base_url}/v2/upload", headers=headers, data=f)
 
@@ -175,7 +172,7 @@ class FillerWordDetector(BaseDetector):
 
         transcript_id = response.json()["id"]
         poll_url = f"{base_url}/v2/transcript/{transcript_id}"
-        logger.info("[FillerWordDetector] Polling transcript %s for %s track…", transcript_id, label)
+        logger.info("[FillerWordDetector] Polling transcript %s for %s track...", transcript_id, label)
 
         while True:
             poll_response = requests.get(poll_url, headers=headers)
@@ -185,7 +182,7 @@ class FillerWordDetector(BaseDetector):
             if status == "completed":
                 words = transcript.get("words") or []
                 logger.info(
-                    "[FillerWordDetector] %s transcript complete — %d word(s) in response.",
+                    "[DETAIL] %s transcript complete — %d word(s) received",
                     label,
                     len(words),
                 )
@@ -196,8 +193,8 @@ class FillerWordDetector(BaseDetector):
                     f"AssemblyAI transcription error for {label}: {transcript.get('error')}"
                 )
 
-            # Still processing — wait and retry
-            logger.debug("[FillerWordDetector] %s status=%s, retrying in %ds…", label, status, _POLL_INTERVAL_SEC)
+            # Still processing -- wait and retry
+            logger.debug("[FillerWordDetector] %s status=%s, retrying in %ds...", label, status, _POLL_INTERVAL_SEC)
             time.sleep(_POLL_INTERVAL_SEC)
 
     # Modified by gpt-5.4 | 2026-03-08
@@ -243,6 +240,19 @@ class FillerWordDetector(BaseDetector):
                     start_sec = window[0]["start"] / 1000.0
                     end_sec = window[-1]["end"] / 1000.0
                     confidence_values = [float(w.get("confidence", 0.0) or 0.0) for w in window]
+
+                    # Gap (ms) to the preceding word; None if filler is first word.
+                    # Used by WordMuter for pause-aware mute inset (slurred speech).
+                    prev_gap_ms = (
+                        words[i]["start"] - words[i - 1]["end"]
+                        if i > 0 else None
+                    )
+                    # Gap (ms) to the following word; None if filler is last word.
+                    next_gap_ms = (
+                        words[i + phrase_len]["start"] - window[-1]["end"]
+                        if (i + phrase_len) < len(words) else None
+                    )
+
                     matches.append(
                         {
                             "track": track,
@@ -250,13 +260,58 @@ class FillerWordDetector(BaseDetector):
                             "start_sec": start_sec,
                             "end_sec": end_sec,
                             "confidence": min(confidence_values) if confidence_values else 0.0,
+                            "prev_gap_ms": prev_gap_ms,
+                            "next_gap_ms": next_gap_ms,
                         }
                     )
                     logger.info(
-                        "[FillerWordDetector] Matched word %r at %.3f–%.3fs",
+                        "[FillerWordDetector] Matched word %r at %.3f-%.3fs",
                         phrase,
                         start_sec,
                         end_sec,
                     )
+
+        return matches
+
+    def _filter_by_confidence(self, matches: List[Dict[str, Any]], track: str) -> List[Dict[str, Any]]:
+        """
+        Annotate each match with ``action = "mute"`` (meets threshold) or
+        ``action = "skipped"`` (below threshold).  All matches are returned
+        so downstream logging can report both kept and skipped words.
+
+        The effective threshold is:
+            effective_required = base_required - (word_count * confidence_bonus_per_word)
+        So every word in the phrase lowers the bar equally — a 1-word phrase
+        gets a -0.05 bonus, 2-word gets -0.10, 3-word gets -0.15, etc.
+
+        Unknown tracks pass through with ``action = "mute"`` (no threshold).
+        """
+        if track == "host":
+            required = float(WORDS_TO_REMOVE.get("confidence_required_host", 0.0) or 0.0)
+        elif track == "guest":
+            required = float(WORDS_TO_REMOVE.get("confidence_required_guest", 0.0) or 0.0)
+        else:
+            for m in matches:
+                m["action"] = "mute"
+            return matches
+
+        bonus_per_word = float(
+            WORDS_TO_REMOVE.get("confidence_bonus_per_word", 0.0) or 0.0
+        )
+
+        for match in matches:
+            conf = float(match.get("confidence", 0.0) or 0.0)
+            phrase = match.get("text", "")
+            word_count = len(phrase.split())
+            # Every word in the phrase earns a bonus that lowers the threshold.
+            effective_required = required - (word_count * bonus_per_word)
+            logger.debug(
+                "[FillerWordDetector] %s | %r: %d word(s), threshold %.2f → %.2f (conf=%.2f)",
+                track, phrase, word_count, required, effective_required, conf,
+            )
+            if conf >= effective_required:
+                match["action"] = "mute"
+            else:
+                match["action"] = "skipped"
 
         return matches

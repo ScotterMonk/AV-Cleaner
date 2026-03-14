@@ -12,15 +12,35 @@ def progress_line_mirror_should(line: str) -> bool:
         for token in (
             "[ACTION START]",
             "[ACTION COMPLETE]",
-            "[SUBFUNCTION START]",
-            "[SUBFUNCTION COMPLETE]",
-            "[SUBFUNCTION FAILED]",
+            "[FUNCTION START]",
+            "[FUNCTION COMPLETE]",
+            "[FUNCTION FAILED]",
             "[PREFLIGHT START]",
             "[PREFLIGHT COMPLETE]",
             "[RUN SUMMARY]",
+            "[RUN START]",
+            "[RUN COMPLETE]",
             "[DETAIL]",
         )
     )
+
+
+# Created by coder-sr | 2026-03-12
+def progress_line_transform(line: str) -> str:
+    """Transform a line before writing it to the PROGRESS pane.
+
+    Filler-word DETAIL lines contain a verbose per-word list after ' | '.
+    Strip that tail so only the summary counts are shown in PROGRESS.
+    The CONSOLE still receives the original, unmodified line.
+
+    Example input:
+        '12:30:24 [DETAIL] Host vid filler words: 0 removed, 0 muted, 3 skipped | "you know" @ ...'
+    Example output:
+        '12:30:24 [DETAIL] Host vid filler words: 0 removed, 0 muted, 3 skipped'
+    """
+    if "[DETAIL]" in line and "filler words:" in line and " | " in line:
+        return line.split(" | ")[0]
+    return line
 
 
 # Created by gpt-5.4 | 2026-03-07

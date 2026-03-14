@@ -16,7 +16,7 @@ class CrossTalkDetector(BaseDetector):
     """
     
     # Modified by gpt-5.2 | 2026-01-19_01
-    def detect(self, host_audio, guest_audio) -> List[Tuple[float, float]]:
+    def detect(self, host_audio, guest_audio, detection_results=None) -> List[Tuple[float, float]]:
         """
         Detect mutual silence regions (both speakers silent) that exceed `max_pause_duration`.
 
@@ -35,6 +35,36 @@ class CrossTalkDetector(BaseDetector):
         """
         from utils.logger import format_time_cut, get_logger
         logger = get_logger(__name__)
+
+        # Self-healing: apply in-memory filler-word mutes to local copies so that
+        # a muted word adjacent to natural silence expands the mutual-silence zone.
+        # The shared audio objects passed by the pipeline are NOT modified.
+        filler_results = (detection_results or {}).get("filler_word_detector", [])
+        if filler_results:
+            from utils.audio_helpers import audio_apply_mutes
+
+            host_mute_ranges = [
+                (seg["start_sec"], seg["end_sec"])
+                for seg in filler_results
+                if isinstance(seg, dict) and str(seg.get("track", "")).lower() == "host"
+            ]
+            guest_mute_ranges = [
+                (seg["start_sec"], seg["end_sec"])
+                for seg in filler_results
+                if isinstance(seg, dict) and str(seg.get("track", "")).lower() == "guest"
+            ]
+            if host_mute_ranges:
+                host_audio = audio_apply_mutes(host_audio, host_mute_ranges)
+                logger.debug(
+                    "[CrossTalkDetector] Applied %d host filler-word mute(s) to local copy for analysis",
+                    len(host_mute_ranges),
+                )
+            if guest_mute_ranges:
+                guest_audio = audio_apply_mutes(guest_audio, guest_mute_ranges)
+                logger.debug(
+                    "[CrossTalkDetector] Applied %d guest filler-word mute(s) to local copy for analysis",
+                    len(guest_mute_ranges),
+                )
 
         threshold_db = self.config.get("silence_threshold_db", -45)
         max_pause_duration = self.config.get("max_pause_duration", 2.5)

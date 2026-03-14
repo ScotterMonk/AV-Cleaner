@@ -214,17 +214,31 @@ class MainPage(tk.Frame):
     def _build_actions(self, parent: tk.Frame) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
         # Modified by Claude-4.5-Sonnet | 2026-01-08_08
+        # Modified by Claude-Sonnet-4.6 | 2026-03-11 — added PAUSE and STOP
         app = self._app
 
-        # Actions are arranged as two packed rows for simple left-to-right flow.
-        # Using pack() here keeps the button row heights content-driven.
-
-        # Single row: PROCESS, OPEN OUT
-        # Keep all actions aligned on one line with consistent horizontal spacing.
+        # Use grid inside the button row so PAUSE/STOP can be shown/hidden via
+        # grid_remove() without disrupting the position of adjacent buttons.
         row = tk.Frame(parent, bg=app._palette["panel"])
         row.pack(fill="x")
-        app._make_btn(row, "PROCESS", self._run_clicked, kind="primary").pack(side="left", padx=(0, 6))
-        app._make_btn(row, "OPEN OUT", self._open_output_clicked, kind="secondary").pack(side="left")
+
+        # Column map: 0=PROCESS, 1=PAUSE, 2=STOP, 3=OPEN OUT
+        process_btn = app._make_btn(row, "PROCESS", self._run_clicked, kind="primary")
+        process_btn.grid(row=0, column=0, padx=(0, 6), sticky="w")
+
+        pause_btn = app._make_btn(row, "PAUSE", self._pause_clicked, kind="secondary")
+        pause_btn.grid(row=0, column=1, padx=(0, 6), sticky="w")
+        pause_btn.grid_remove()  # hidden until processing starts
+
+        stop_btn = app._make_btn(row, "STOP", self._stop_clicked, kind="secondary")
+        stop_btn.grid(row=0, column=2, padx=(0, 6), sticky="w")
+        stop_btn.grid_remove()  # hidden until processing starts
+
+        open_btn = app._make_btn(row, "OPEN OUT", self._open_output_clicked, kind="secondary")
+        open_btn.grid(row=0, column=3, padx=(0, 0), sticky="w")
+
+        # Register all three with the app so it can update their state
+        app.register_action_buttons(process_btn, pause_btn, stop_btn)
 
     def _build_logs(self, parent: tk.Frame) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
@@ -439,4 +453,14 @@ class MainPage(tk.Frame):
             messagebox.showwarning("Missing files", "Select both HOST and GUEST files first.")
             return
         self._app.run_processing(host, guest)
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def _pause_clicked(self) -> None:
+        """Toggle pause/resume on the active processing job."""
+        self._app.pause_processing()
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def _stop_clicked(self) -> None:
+        """Kill the active processing job."""
+        self._app.stop_processing()
 

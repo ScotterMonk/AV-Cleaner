@@ -65,3 +65,169 @@ def get_video_duration_seconds(video_path: str) -> float:
 
     return duration
 
+
+def probe_video_keyframes(video_path: str) -> list[float]:
+    """Return a sorted list of keyframe timestamps (in seconds) for the first video stream.
+
+    Uses ffprobe with the following column order — do NOT reorder, as stdout parsing depends on it:
+        key_frame, pts_time
+
+    Each stdout line is parsed as "<key_frame>,<pts_time>".  Only lines where
+    ``key_frame == "1"`` are collected; all other rows (non-keyframes) are
+    discarded.  Malformed lines (those that do not split into exactly 2 tokens)
+    are silently skipped.
+
+    Args:
+        video_path: Absolute or relative path to the video file.
+
+    Returns:
+        A sorted ``list[float]`` of keyframe PTS timestamps in seconds.
+
+    Raises:
+        RuntimeError: If ffprobe is not found on PATH (wraps FileNotFoundError
+            with a clear message starting "ffprobe not found on PATH").
+        RuntimeError: If ffprobe exits with a non-zero return code; the full
+            stderr is included in the message.
+    """
+
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_frames",
+        "-show_entries", "frame=key_frame,pts_time",
+        "-of", "csv=p=0",
+        video_path,
+    ]
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            "ffprobe not found on PATH — install FFmpeg (including ffprobe) "
+            "and ensure it is available on PATH."
+        ) from e
+
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()
+        raise RuntimeError(
+            f"ffprobe failed while probing keyframes for: {video_path}\n{stderr}"
+        )
+
+    keyframe_times: list[float] = []
+    for line in (proc.stdout or "").splitlines():
+        tokens = line.strip().split(",")
+        # Column order is key_frame, pts_time — exactly 2 tokens required.
+        if len(tokens) != 2:
+            continue  # skip malformed lines
+        key_frame, pts_time = tokens
+        if key_frame == "1":
+            try:
+                keyframe_times.append(float(pts_time))
+            except ValueError:
+                # pts_time is not a valid float — treat as malformed
+                continue
+
+    return sorted(keyframe_times)
+
+
+def probe_video_stream_codec(video_path: str) -> str:
+    """Return the codec name for the first video stream, e.g. ``"h264"``.
+
+    This helper exists to determine whether an input file is already H.264 so
+    that the initial two-phase render rollout can safely mix stream-copied H.264
+    segments with bridge-encoded H.264 segments in the MP4 concat flow without
+    introducing codec mismatches that would cause FFmpeg to error or produce
+    corrupt output.
+
+    Args:
+        video_path: Absolute or relative path to the video file.
+
+    Returns:
+        The stripped codec name string reported by ffprobe for stream ``v:0``
+        (e.g. ``"h264"``, ``"hevc"``, ``"vp9"``).
+
+    Raises:
+        RuntimeError: If ffprobe is not found on PATH; wraps FileNotFoundError
+            with a clear message.
+        RuntimeError: If ffprobe exits with a non-zero return code; includes
+            ffprobe stderr in the message.
+    """
+
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=codec_name",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        video_path,
+    ]
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            "ffprobe not found on PATH — install FFmpeg (including ffprobe) "
+            "and ensure it is available on PATH."
+        ) from e
+
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()
+        raise RuntimeError(
+            f"ffprobe failed while probing video codec for: {video_path}\n{stderr}"
+        )
+
+    return (proc.stdout or "").strip()
+
+
+def probe_video_fps(video_path: str) -> float | None:
+    """Return the frame rate (fps) for the first video stream, or None on failure.
+
+    Uses ffprobe's ``r_frame_rate`` field, which is the exact frame rate as a
+    rational ``"num/den"`` string (e.g. ``"60/1"``, ``"30000/1001"``).
+
+    Returns ``None`` rather than raising so callers can gracefully skip
+    frame-quantization when the FPS cannot be determined.
+
+    Args:
+        video_path: Absolute or relative path to the video file.
+
+    Returns:
+        Frame rate in frames per second as a float, or None if unavailable.
+    """
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=r_frame_rate",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        video_path,
+    ]
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except (FileNotFoundError, OSError):
+        return None
+
+    if proc.returncode != 0:
+        return None
+
+    raw = (proc.stdout or "").strip()
+    if not raw:
+        return None
+
+    # r_frame_rate is returned as a rational "num/den" string (e.g. "60/1").
+    if "/" in raw:
+        try:
+            num_s, den_s = raw.split("/", 1)
+            den_f = float(den_s)
+            if den_f == 0:
+                return None
+            return float(num_s) / den_f
+        except (ValueError, ZeroDivisionError):
+            return None
+
+    try:
+        return float(raw)
+    except ValueError:
+        return None

@@ -17,7 +17,7 @@ class SegmentRemover(BaseProcessor):
     on the EditManifest.
 
     Uses the manifest's shared accumulator (add_removal + compute_keep_segments)
-    so that any subsequent processor (e.g. WordRemover) can safely add its own
+    so that any subsequent processor (e.g. WordMuter) can safely add its own
     removals and recompute keep_segments without clobbering these cuts.
     """
 

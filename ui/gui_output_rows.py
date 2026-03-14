@@ -40,7 +40,7 @@ def file_grid_line_color_get(app: Any) -> str:
     panel_outline_thickness = int(getattr(app, "_panel_outline_thickness", 1))
     if panel_outline_thickness > 1:
         return accent_line
-    return _hex_color_blend(accent_line, str(app._palette["panel"]), 0.60)
+    return _hex_color_blend(accent_line, str(app._palette["panel"]), 0.72)
 
 
 # Created by gpt-5.4 | 2026-03-08

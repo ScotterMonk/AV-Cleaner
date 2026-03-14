@@ -2,13 +2,14 @@
 
 Custom logging handler for progress/action logs.
 
-Captures log lines with special tokens (e.g., [ACTION START], [SUBFUNCTION START]) 
+Captures log lines with special tokens (e.g., [ACTION START], [FUNCTION START]) 
 and writes them to a file. These are the same lines that appear in the GUI PROGRESS pane.
 """
 
 from __future__ import annotations
 
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
@@ -18,9 +19,9 @@ from typing import Sequence
 _PROGRESS_TOKENS = (
     "[ACTION START]",
     "[ACTION COMPLETE]",
-    "[SUBFUNCTION START]",
-    "[SUBFUNCTION COMPLETE]",
-    "[SUBFUNCTION FAILED]",
+    "[FUNCTION START]",
+    "[FUNCTION COMPLETE]",
+    "[FUNCTION FAILED]",
     "[PREFLIGHT START]",
     "[PREFLIGHT COMPLETE]",
     "[RUN SUMMARY]",
@@ -45,13 +46,25 @@ class ProgressLogHandler(logging.Handler):
         """Write log record to file if it contains a progress token."""
         try:
             msg = self.format(record)
-            
+
             # Only write lines with progress tokens
             if any(token in msg for token in _PROGRESS_TOKENS):
                 with open(self.log_file_path, "a", encoding="utf-8") as f:
                     f.write(msg + "\n")
         except Exception:
             self.handleError(record)
+
+    def handleError(self, record: logging.LogRecord) -> None:  # type: ignore[override]
+        """Re-raise instead of swallowing handler errors.
+
+        Python's default logging.Handler.handleError() only prints a traceback
+        to stderr and continues. This override re-raises so any failure to write
+        the progress log stops the process immediately rather than silently.
+        """
+        _, exc_value, _ = sys.exc_info()
+        if exc_value is not None:
+            raise exc_value
+        super().handleError(record)
 
 
 def progress_log_path(project_dir: str | Path, *, now: datetime | None = None) -> Path:

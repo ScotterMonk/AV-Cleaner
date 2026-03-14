@@ -174,6 +174,9 @@ class SettingsPage(tk.Frame):
             "words_to_remove": tk.StringVar(),
             "confidence_required_host": tk.StringVar(value="1.00"),
             "confidence_required_guest": tk.StringVar(value="0.90"),
+            "confidence_bonus_per_word": tk.StringVar(value="0.05"),
+            "filler_mute_inset_ms": tk.StringVar(value="30"),
+            "filler_mute_gap_threshold_ms": tk.StringVar(value="60"),
         }
 
         # Quality preset vars (PODCAST_HIGH_QUALITY)
@@ -276,6 +279,9 @@ class SettingsPage(tk.Frame):
         self._word_vars["words_to_remove"].set(", ".join(str(word).strip() for word in words_to_remove if str(word).strip()))
         self._word_vars["confidence_required_host"].set(str(words_cfg.get("confidence_required_host", 1.0)))
         self._word_vars["confidence_required_guest"].set(str(words_cfg.get("confidence_required_guest", 0.9)))
+        self._word_vars["confidence_bonus_per_word"].set(str(words_cfg.get("confidence_bonus_per_word", 0.05)))
+        self._word_vars["filler_mute_inset_ms"].set(str(words_cfg.get("filler_mute_inset_ms", 30)))
+        self._word_vars["filler_mute_gap_threshold_ms"].set(str(words_cfg.get("filler_mute_gap_threshold_ms", 60)))
 
         def mk_section(title: str) -> tk.Frame:
             tk.Label(
@@ -386,6 +392,14 @@ class SettingsPage(tk.Frame):
         mk_kv_row(words_sec, "Words to remove (comma-separated)", self._word_vars["words_to_remove"], width=28)
         mk_kv_row(words_sec, "Host confidence required", self._word_vars["confidence_required_host"], width=10)
         mk_kv_row(words_sec, "Guest confidence required", self._word_vars["confidence_required_guest"], width=10)
+        mk_kv_row(words_sec, "Confidence bonus per word", self._word_vars["confidence_bonus_per_word"], width=10)
+        mk_kv_row(words_sec, "Mute inset (ms)", self._word_vars["filler_mute_inset_ms"], width=10)
+        mk_kv_row(
+            words_sec,
+            "Mute gap threshold (ms)",
+            self._word_vars["filler_mute_gap_threshold_ms"],
+            width=10,
+        )
 
         # --- Encoding Section ---
         enc_sec = mk_section("VIDEO ENCODING")
@@ -512,6 +526,15 @@ class SettingsPage(tk.Frame):
             except ValueError:
                 raise ValueError(f"{label} must be a number")
 
+        def to_int_word(key: str, label: str) -> int:
+            raw = self._word_vars[key].get().strip()
+            if raw == "":
+                raise ValueError(f"{label} is required")
+            try:
+                return int(raw)
+            except ValueError:
+                raise ValueError(f"{label} must be an integer")
+
         try:
             gui_update = {
                 "gui_width": to_int("gui_width"),
@@ -604,6 +627,15 @@ class SettingsPage(tk.Frame):
             )
             words_cfg["confidence_required_guest"] = to_float_word(
                 "confidence_required_guest", "Guest confidence required"
+            )
+            words_cfg["confidence_bonus_per_word"] = to_float_word(
+                "confidence_bonus_per_word", "Confidence bonus per word"
+            )
+            words_cfg["filler_mute_inset_ms"] = to_int_word(
+                "filler_mute_inset_ms", "Mute inset (ms)"
+            )
+            words_cfg["filler_mute_gap_threshold_ms"] = to_int_word(
+                "filler_mute_gap_threshold_ms", "Mute gap threshold (ms)"
             )
 
             ConfigEditor.write_gui_and_pipeline(

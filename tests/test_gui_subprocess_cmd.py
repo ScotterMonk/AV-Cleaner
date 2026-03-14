@@ -51,6 +51,12 @@ def _make_app(tmp_path):
     app._set_row_for_path = lambda *_args: None
     app._set_modded_row_for_path = lambda *_args: None
     app._clear_modded_rows = lambda: None
+    # Processing-control state added by 2026-03-11 pause/stop feature
+    app._proc_paused = False
+    app._proc_stop_requested = False
+    app._proc_process_btn = None
+    app._proc_pause_btn = None
+    app._proc_stop_btn = None
     return app
 
 
