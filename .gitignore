@@ -20,6 +20,7 @@ activate.ps1
 # Misc
 notes/
 temp/
+temp_audio/
 test_results/
 test_videos/
 *.af
