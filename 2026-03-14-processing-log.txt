@@ -1,0 +1,164 @@
+[RUN START] FULL_PIPELINE
+[RUN START] FULL_PIPELINE
+[RUN SUMMARY] ORIGINAL FILES - Host length: N/A, Guest length: N/A
+[RUN SUMMARY] ORIGINAL FILES - Host length: N/A, Guest length: N/A
+[RUN SUMMARY] PROCESSED FILES - Host length: N/A, Guest length: N/A
+[RUN SUMMARY] PROCESSED FILES - Host length: N/A, Guest length: N/A
+[RUN COMPLETE] FULL_PIPELINE - Took 00:00:00.002
+[RUN COMPLETE] FULL_PIPELINE - Took 00:00:00.002
+[FUNCTION START] Pad end of shorter video (host) to fit longer video length
+[FUNCTION START] Pad end of shorter video (host) to fit longer video length
+[PREFLIGHT COMPLETE] Padded shorter video (host) to fit longer video - Preflight pair written to 00:10 duration - Took 00:00:00.0
+[PREFLIGHT COMPLETE] Padded shorter video (host) to fit longer video - Preflight pair written to 00:10 duration - Took 00:00:00.0
+[FUNCTION COMPLETE] Pad end of shorter video (host) to fit longer video length - Took 00:00:00.0
+[FUNCTION COMPLETE] Pad end of shorter video (host) to fit longer video length - Took 00:00:00.0
+[DETAIL] Extracting audio (host + guest)...
+[DETAIL] Extracting audio (host + guest)...
+[DETAIL] Detector 1/2: audio_level_detector
+[DETAIL] Detector 1/2: audio_level_detector
+[DETAIL] Detector 2/2: spike_fixer_detector
+[DETAIL] Detector 2/2: spike_fixer_detector
+[FUNCTION START] Normalize Guest Audio
+[FUNCTION START] Normalize Guest Audio
+[DETAIL] Guest audio adjusted: +12.0 dB
+[DETAIL] Guest audio adjusted: +12.0 dB
+[FUNCTION COMPLETE] Normalize Guest Audio - Took 00:00:00.0
+[FUNCTION COMPLETE] Normalize Guest Audio - Took 00:00:00.0
+[FUNCTION START] Remove audio spikes
+[FUNCTION START] Remove audio spikes
+[DETAIL] Fixed 1 audio spike(s) in guest video
+[DETAIL] Fixed 1 audio spike(s) in guest video
+[FUNCTION COMPLETE] Remove audio spikes - Took 00:00:00.0
+[FUNCTION COMPLETE] Remove audio spikes - Took 00:00:00.0
+[FUNCTION START] Render videos
+[FUNCTION START] Render videos
+[FUNCTION COMPLETE] Render videos - Took 00:00:00.001
+[FUNCTION COMPLETE] Render videos - Took 00:00:00.001
+[DETAIL] Extracting audio (host + guest)...
+[DETAIL] Extracting audio (host + guest)...
+[DETAIL] Detector 1/2: audio_level_detector
+[DETAIL] Detector 1/2: audio_level_detector
+[DETAIL] Detector 2/2: spike_fixer_detector
+[DETAIL] Detector 2/2: spike_fixer_detector
+[FUNCTION START] Normalize Guest Audio
+[FUNCTION START] Normalize Guest Audio
+[DETAIL] Guest audio adjusted (estimated): +14.0 dB
+[DETAIL] Guest audio adjusted (estimated): +14.0 dB
+[FUNCTION COMPLETE] Normalize Guest Audio - Took 00:00:00.0
+[FUNCTION COMPLETE] Normalize Guest Audio - Took 00:00:00.0
+[FUNCTION START] Remove audio spikes
+[FUNCTION START] Remove audio spikes
+[DETAIL] Fixed 1 audio spike(s) in guest video
+[DETAIL] Fixed 1 audio spike(s) in guest video
+[FUNCTION COMPLETE] Remove audio spikes - Took 00:00:00.0
+[FUNCTION COMPLETE] Remove audio spikes - Took 00:00:00.0
+[FUNCTION START] Render videos
+[FUNCTION START] Render videos
+[FUNCTION COMPLETE] Render videos - Took 00:00:00.001
+[FUNCTION COMPLETE] Render videos - Took 00:00:00.001
+[DETAIL] Host audio render: started (1 segments)
+[DETAIL] Host audio render: started (1 segments)
+[DETAIL] Host audio render: complete | Took 00:00:00
+[DETAIL] Host audio render: complete | Took 00:00:00
+[DETAIL] Host keyframe scan: started
+[DETAIL] Host keyframe scan: started
+[DETAIL] Host keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Host keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Host video copy: started (1 segments)
+[DETAIL] Host video copy: started (1 segments)
+[DETAIL] Host video copy: complete | Took 00:00:00
+[DETAIL] Host video copy: complete | Took 00:00:00
+[DETAIL] Host mux: started
+[DETAIL] Host mux: started
+[DETAIL] Host mux: complete | Took 00:00:00
+[DETAIL] Host mux: complete | Took 00:00:00
+[DETAIL] Guest audio render: started (1 segments)
+[DETAIL] Guest audio render: started (1 segments)
+[DETAIL] Guest audio render: complete | Took 00:00:00
+[DETAIL] Guest audio render: complete | Took 00:00:00
+[DETAIL] Guest keyframe scan: started
+[DETAIL] Guest keyframe scan: started
+[DETAIL] Guest keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Guest keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Guest video copy: started (1 segments)
+[DETAIL] Guest video copy: started (1 segments)
+[DETAIL] Guest video copy: complete | Took 00:00:00
+[DETAIL] Guest video copy: complete | Took 00:00:00
+[DETAIL] Guest mux: started
+[DETAIL] Guest mux: started
+[DETAIL] Guest mux: complete | Took 00:00:00
+[DETAIL] Guest mux: complete | Took 00:00:00
+[DETAIL] Host audio render: started (1 segments)
+[DETAIL] Host audio render: started (1 segments)
+[DETAIL] Host audio render: complete | Took 00:00:00
+[DETAIL] Host audio render: complete | Took 00:00:00
+[DETAIL] Host keyframe scan: started
+[DETAIL] Host keyframe scan: started
+[DETAIL] Host keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Host keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Host video copy: started (1 segments)
+[DETAIL] Host video copy: started (1 segments)
+[DETAIL] Host video copy: complete | Took 00:00:00
+[DETAIL] Host video copy: complete | Took 00:00:00
+[DETAIL] Host mux: started
+[DETAIL] Host mux: started
+[DETAIL] Host mux: complete | Took 00:00:00
+[DETAIL] Host mux: complete | Took 00:00:00
+[DETAIL] Host audio render: started (2 segments)
+[DETAIL] Host audio render: started (2 segments)
+[DETAIL] Host audio render: complete | Took 00:00:00
+[DETAIL] Host audio render: complete | Took 00:00:00
+[DETAIL] Host keyframe scan: started
+[DETAIL] Host keyframe scan: started
+[DETAIL] Host keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Host keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Host video copy: started (2 segments)
+[DETAIL] Host video copy: started (2 segments)
+[DETAIL] Host video copy: complete | Took 00:00:00
+[DETAIL] Host video copy: complete | Took 00:00:00
+[DETAIL] Host mux: started
+[DETAIL] Host mux: started
+[DETAIL] Host mux: complete | Took 00:00:00
+[DETAIL] Host mux: complete | Took 00:00:00
+[DETAIL] Host audio render: started (1 segments)
+[DETAIL] Host audio render: started (1 segments)
+[DETAIL] Host audio render: complete | Took 00:00:00
+[DETAIL] Host audio render: complete | Took 00:00:00
+[DETAIL] Host keyframe scan: started
+[DETAIL] Host keyframe scan: started
+[DETAIL] Host keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Host keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Host video copy: started (1 segments)
+[DETAIL] Host video copy: started (1 segments)
+[DETAIL] Host video copy: complete | Took 00:00:00
+[DETAIL] Host video copy: complete | Took 00:00:00
+[DETAIL] Host mux: started
+[DETAIL] Host mux: started
+[DETAIL] Host mux: complete | Took 00:00:00
+[DETAIL] Host mux: complete | Took 00:00:00
+[DETAIL] Host audio render: started (1 segments)
+[DETAIL] Host audio render: started (1 segments)
+[DETAIL] Host audio render: started (1 segments)
+[DETAIL] Host audio render: started (1 segments)
+[DETAIL] Host audio render: complete | Took 00:00:00
+[DETAIL] Host audio render: complete | Took 00:00:00
+[DETAIL] Host keyframe scan: started
+[DETAIL] Host keyframe scan: started
+[DETAIL] Host keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Host keyframe scan: complete | 2 keyframes | Took 00:00:00
+[DETAIL] Host video copy: started (1 segments)
+[DETAIL] Host video copy: started (1 segments)
+[DETAIL] Host video copy: complete | Took 00:00:00
+[DETAIL] Host video copy: complete | Took 00:00:00
+[DETAIL] Host mux: started
+[DETAIL] Host mux: started
+[DETAIL] Host mux: complete | Took 00:00:00
+[DETAIL] Host mux: complete | Took 00:00:00
+[DETAIL] Encoding strategy: two-phase (audio-first + smart copy) × 1 video(s)
+[DETAIL] Encoding strategy: two-phase (audio-first + smart copy) × 1 video(s)
+[DETAIL] Encoding strategy: single-pass | 1 segments × 1 video(s)
+[DETAIL] Encoding strategy: single-pass | 1 segments × 1 video(s)
+[DETAIL] Host video: encoding started
+[DETAIL] Host video: encoding started
+[DETAIL] Host video: encoding complete | Took 00:00:00
+[DETAIL] Host video: encoding complete | Took 00:00:00

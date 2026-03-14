@@ -11,23 +11,30 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import click
 
+from utils.env_loader import env_file_load
+
+env_file_load()
+
 from core.pipeline import ProcessingPipeline
 from detectors.audio_level_detector import AudioLevelDetector
 from detectors.cross_talk_detector import CrossTalkDetector
+from detectors.filler_word_detector import FillerWordDetector
 from detectors.spike_fixer_detector import SpikeFixerDetector
 from io_.media_preflight import normalize_video_lengths
 from io_.media_probe import get_video_duration_seconds
 from processors.spike_fixer import SpikeFixer
 from processors.audio_normalizer import AudioNormalizer
 from processors.segment_remover import SegmentRemover
+from processors.word_muter import WordMuter
 from config import QUALITY_PRESETS, PIPELINE_CONFIG
 from utils.logger import format_duration, format_time_cut, setup_logger
 
 
 _PROCESSOR_REGISTRY = {
     "SegmentRemover": SegmentRemover,
+    "WordMuter":      WordMuter,
     "AudioNormalizer": AudioNormalizer,
-    "SpikeFixer": SpikeFixer,
+    "SpikeFixer":     SpikeFixer,
 }
 
 
@@ -57,7 +64,7 @@ def _register_required_detectors(pipeline: ProcessingPipeline) -> None:
     detector_order: list[str] = []
 
     # Detector registration order matters for analysis/processing dependencies.
-    # Required order (when enabled): AudioLevelDetector -> SpikeFixerDetector -> other detectors
+    # Required order (when enabled): AudioLevelDetector -> SpikeFixerDetector -> FillerWordDetector -> CrossTalkDetector
 
     # AudioNormalizer needs per-frame audio level analysis (for normalization decisions).
     if _pipeline_component_enabled("processors", "AudioNormalizer"):
@@ -68,6 +75,13 @@ def _register_required_detectors(pipeline: ProcessingPipeline) -> None:
     if _pipeline_component_enabled("processors", "SpikeFixer"):
         pipeline.add_detector(SpikeFixerDetector(pipeline.config))
         detector_order.append("SpikeFixerDetector")
+
+    # WordMuter requires word-level transcription detection.
+    # Must run before CrossTalkDetector so filler_word_detector results
+    # are available for self-healing mute analysis.
+    if _pipeline_component_enabled("processors", "WordMuter"):
+        pipeline.add_detector(FillerWordDetector(pipeline.config))
+        detector_order.append("FillerWordDetector")
 
     # SegmentRemover requires mutual-silence detection.
     if _pipeline_component_enabled("processors", "SegmentRemover"):
@@ -159,7 +173,7 @@ def _run_process(host: str, guest: str, norm_mode: str | None, action: str | Non
         )
 
         action_duration = time.time() - run_start_time
-        logger.info(f"[RUN COMPLETE] FULL_PIPELINE - Duration: {format_duration(action_duration)}")
+        logger.info(f"[RUN COMPLETE] FULL_PIPELINE - Took {format_duration(action_duration)}")
 
         logger.info("Success! Files created:\n" + "\n".join(created))
         logger.info(f"[RESULT] host={h_out} guest={g_out}")

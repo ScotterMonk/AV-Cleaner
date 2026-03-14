@@ -16,7 +16,7 @@ class CrossTalkDetector(BaseDetector):
     """
     
     # Modified by gpt-5.2 | 2026-01-19_01
-    def detect(self, host_audio, guest_audio) -> List[Tuple[float, float]]:
+    def detect(self, host_audio, guest_audio, detection_results=None) -> List[Tuple[float, float]]:
         """
         Detect mutual silence regions (both speakers silent) that exceed `max_pause_duration`.
 
@@ -35,6 +35,36 @@ class CrossTalkDetector(BaseDetector):
         """
         from utils.logger import format_time_cut, get_logger
         logger = get_logger(__name__)
+
+        # Self-healing: apply in-memory filler-word mutes to local copies so that
+        # a muted word adjacent to natural silence expands the mutual-silence zone.
+        # The shared audio objects passed by the pipeline are NOT modified.
+        filler_results = (detection_results or {}).get("filler_word_detector", [])
+        if filler_results:
+            from utils.audio_helpers import audio_apply_mutes
+
+            host_mute_ranges = [
+                (seg["start_sec"], seg["end_sec"])
+                for seg in filler_results
+                if isinstance(seg, dict) and str(seg.get("track", "")).lower() == "host"
+            ]
+            guest_mute_ranges = [
+                (seg["start_sec"], seg["end_sec"])
+                for seg in filler_results
+                if isinstance(seg, dict) and str(seg.get("track", "")).lower() == "guest"
+            ]
+            if host_mute_ranges:
+                host_audio = audio_apply_mutes(host_audio, host_mute_ranges)
+                logger.debug(
+                    "[CrossTalkDetector] Applied %d host filler-word mute(s) to local copy for analysis",
+                    len(host_mute_ranges),
+                )
+            if guest_mute_ranges:
+                guest_audio = audio_apply_mutes(guest_audio, guest_mute_ranges)
+                logger.debug(
+                    "[CrossTalkDetector] Applied %d guest filler-word mute(s) to local copy for analysis",
+                    len(guest_mute_ranges),
+                )
 
         threshold_db = self.config.get("silence_threshold_db", -45)
         max_pause_duration = self.config.get("max_pause_duration", 2.5)
@@ -180,21 +210,30 @@ class CrossTalkDetector(BaseDetector):
         
         return regions
     
-    def _verify_mutual_silence(self, host_audio, guest_audio, 
+    def _verify_mutual_silence(self, host_audio, guest_audio,
             start, end, threshold_db):
         """
         Double-check that detected region is truly mutual silence.
         Quality gate to prevent false positives.
+
+        Uses RMS-based dBFS (pydub AudioSegment.dBFS) — NOT max_dBFS (peak).
+        Reason: the envelope detector in Step 4 uses windowed RMS via
+        calculate_db_envelope(), so we must stay consistent here.
+        max_dBFS reflects the single loudest sample in the region; a brief
+        noise click in an otherwise silent 2-second pause would cause the
+        peak to far exceed the threshold and reject a perfectly valid pause.
+        RMS averages energy across the whole segment, matching the detection
+        philosophy and preventing false rejections.
         """
         # Extract segments (pydub uses milliseconds)
         host_segment = host_audio[int(start*1000):int(end*1000)]
         guest_segment = guest_audio[int(start*1000):int(end*1000)]
         
-        # Check max dB in each segment
-        host_max = host_segment.max_dBFS if len(host_segment) > 0 else -100
-        guest_max = guest_segment.max_dBFS if len(guest_segment) > 0 else -100
+        # Use RMS-based dBFS, consistent with calculate_db_envelope() in detection
+        host_rms = host_segment.dBFS if len(host_segment) > 0 else -100
+        guest_rms = guest_segment.dBFS if len(guest_segment) > 0 else -100
         
-        return (host_max < threshold_db) and (guest_max < threshold_db)
+        return (host_rms < threshold_db) and (guest_rms < threshold_db)
     
     def get_name(self) -> str:
         return "cross_talk_detector"

@@ -11,36 +11,23 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 from config import GUI
-from ui.gui_helpers import FileRowState, format_bytes, get_video_duration_seconds
+from ui.gui_config_editor import ConfigEditor
+from ui.gui_helpers import FileRowState, format_duration_display, format_size_mb, get_video_duration_seconds
+from ui.gui_output_rows import file_grid_cell_create, output_row_create
 from ui.gui_pages import MainPage
+from ui.gui_process_helpers import progress_line_mirror_should, progress_line_transform, result_line_paths_parse
 from ui.gui_settings_page import SettingsPage
 from ui.gui_ffmpeg_formatter import format_ffmpeg_progress_line, should_show_progress_line, reset_progress_counter
 from ui.gui_outputs import save_fixed_outputs as gui_save_fixed_outputs
+from utils.processing_alert import processing_complete_alert_play
 from utils.path_helpers import make_processed_output_path
-
-
-def _should_mirror_to_progress(line: str) -> bool:
-    """True for non-FFmpeg lines that should also appear in the PROGRESS pane."""
-
-    return any(
-        token in line
-        for token in (
-            "[ACTION START]",
-            "[ACTION COMPLETE]",
-            "[SUBFUNCTION START]",
-            "[SUBFUNCTION COMPLETE]",
-            "[SUBFUNCTION FAILED]",
-            "[PREFLIGHT START]",
-            "[PREFLIGHT COMPLETE]",
-            "[RUN SUMMARY]",
-            "[DETAIL]",
-        )
-    )
+from utils.video_player_launch import video_player_open
 
 
 class AVCleanerGUI(tk.Tk):
     # Created by gpt-5.2 | 2026-01-08_01
     def __init__(self, *, project_dir: Path | None = None) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
         super().__init__()
 
         self._project_dir = project_dir or Path(__file__).resolve().parents[1]
@@ -54,6 +41,7 @@ class AVCleanerGUI(tk.Tk):
             "accent_font": str(GUI.get("ui_accent_font_color", neon_green)),
             "accent_line": str(GUI.get("ui_accent_line_color", neon_green)),
         }
+        self._panel_outline_thickness = 1
 
         self._palette = {
             "bg": "#0B0D10",
@@ -86,11 +74,21 @@ class AVCleanerGUI(tk.Tk):
         self.configure(bg=self._palette["bg"])
 
         self._rows: dict[str, FileRowState] = {}
+        self._modded_rows: dict[str, FileRowState] = {}
         self._status_var = tk.StringVar(value="Ready")
 
         self._log_queue: Queue[str] = Queue()
         self._progress_queue: Queue[str] = Queue()
         self._proc: subprocess.Popen | None = None
+
+        # Processing control state
+        self._proc_paused: bool = False
+        self._proc_stop_requested: bool = False
+
+        # Button references registered by MainPage after build
+        self._proc_process_btn: tk.Button | None = None
+        self._proc_pause_btn: tk.Button | None = None
+        self._proc_stop_btn: tk.Button | None = None
 
         self._build_shell()
         self._poll_log_queue()
@@ -112,7 +110,7 @@ class AVCleanerGUI(tk.Tk):
         outer = tk.Frame(
             parent,
             bg=self._palette["panel"],
-            highlightthickness=1,
+            highlightthickness=self._panel_outline_thickness,
             highlightbackground=self._ui_colors["accent_line"],
             highlightcolor=self._ui_colors["accent_line"],
             relief="flat",
@@ -232,7 +230,9 @@ class AVCleanerGUI(tk.Tk):
         self._nav_main_btn = self._make_btn(nav, "MAIN", lambda: self.show_page("main"), kind="secondary")
         self._nav_main_btn.pack(side="left", padx=(0, 10))
         self._nav_settings_btn = self._make_btn(nav, "SETTINGS", lambda: self.show_page("settings"), kind="secondary")
-        self._nav_settings_btn.pack(side="left")
+        self._nav_settings_btn.pack(side="left", padx=(0, 10))
+        self._nav_restart_btn = self._make_btn(nav, "RESTART APP", self._restart_app, kind="secondary")
+        self._nav_restart_btn.pack(side="left")
 
         # Status bar
         status = tk.Frame(self, bg=self._palette["panel2"], highlightthickness=2, highlightbackground=self._palette["edge2"])
@@ -261,17 +261,70 @@ class AVCleanerGUI(tk.Tk):
     def set_status(self, text: str) -> None:
         self._status_var.set(text)
 
+    # Created by gpt-5.4 | 2026-03-08
+    def _restart_app(self) -> None:
+        """Launch a fresh GUI process, then close the current window.
+
+        This mirrors the user's manual workflow of closing the app and running
+        `python app.py` again from the project root.
+        """
+
+        restart_cmd = [sys.executable, "app.py"]
+
+        try:
+            self.append_log("[GUI] Restarting app...\n")
+        except Exception:
+            pass
+
+        try:
+            subprocess.Popen(restart_cmd, cwd=str(self._project_dir))
+        except Exception as exc:
+            self.set_status("Restart failed")
+            messagebox.showerror("Restart failed", f"Could not restart app.\n\n{exc}")
+            return
+
+        self.destroy()
+
     def clear_logs(self) -> None:
         self._log_queue.put("__CLEAR__")
 
+    def _gui_line_sanitize(self, text: str) -> str:
+        """Remove redundant logging level text from GUI-only display lines."""
+
+        return text.replace(" - INFO - ", " ")
+
     def append_log(self, text: str) -> None:
-        self._log_queue.put(text)
+        self._log_queue.put(self._gui_line_sanitize(text))
 
     def clear_progress(self) -> None:
         self._progress_queue.put("__CLEAR__")
 
     def append_progress(self, text: str) -> None:
-        self._progress_queue.put(text)
+        self._progress_queue.put(self._gui_line_sanitize(text))
+
+    # Created by gpt-5.4 | 2026-03-08
+    def _reload_runtime_settings(self) -> bool:
+        """Refresh config-backed GUI settings from `config.py` before a run starts."""
+
+        config_path = self._project_dir / "config.py"
+        try:
+            gui_dict, _pipe_cfg, _qual_presets = ConfigEditor.load_gui_and_pipeline(config_path)
+        except Exception as exc:
+            self.append_log(f"[GUI] Failed to reload config.py: {exc}\n")
+            self.set_status("Config reload failed")
+            messagebox.showerror("Config load failed", str(exc))
+            return False
+
+        # Keep the imported GUI dict object current so later runtime lookups use the
+        # latest values without requiring a full GUI restart.
+        GUI.clear()
+        GUI.update(gui_dict)
+
+        settings_page = self._pages.get("settings")
+        if settings_page is not None and hasattr(settings_page, "_reload"):
+            settings_page._reload()
+
+        return True
 
     def _poll_log_queue(self) -> None:
         try:
@@ -299,20 +352,172 @@ class AVCleanerGUI(tk.Tk):
             pass
         self.after(60, self._poll_log_queue)
 
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def register_action_buttons(
+        self,
+        process_btn: tk.Button,
+        pause_btn: tk.Button,
+        stop_btn: tk.Button,
+    ) -> None:
+        """Called by MainPage after building buttons so the app can update them."""
+        self._proc_process_btn = process_btn
+        self._proc_pause_btn = pause_btn
+        self._proc_stop_btn = stop_btn
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def _proc_ui_update(self, running: bool) -> None:
+        """Show/hide Pause+Stop and enable/disable Process to reflect state."""
+        if self._proc_process_btn:
+            self._proc_process_btn.configure(state="disabled" if running else "normal")
+        if self._proc_pause_btn:
+            if running:
+                label = "RESUME" if self._proc_paused else "PAUSE"
+                self._proc_pause_btn.configure(text=label)
+                self._proc_pause_btn.grid()
+            else:
+                self._proc_pause_btn.grid_remove()
+                self._proc_paused = False
+        if self._proc_stop_btn:
+            if running:
+                self._proc_stop_btn.grid()
+            else:
+                self._proc_stop_btn.grid_remove()
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def _proc_tree_suspend(self) -> None:
+        """Suspend the entire subprocess tree (pause all child processes too)."""
+        if not self._proc:
+            return
+        try:
+            import psutil
+            parent = psutil.Process(self._proc.pid)
+            # Suspend children first, then parent
+            for child in parent.children(recursive=True):
+                child.suspend()
+            parent.suspend()
+        except Exception as exc:
+            self.append_log(f"[GUI] Pause failed: {exc}\n")
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def _proc_tree_resume(self) -> None:
+        """Resume the entire suspended subprocess tree."""
+        if not self._proc:
+            return
+        try:
+            import psutil
+            parent = psutil.Process(self._proc.pid)
+            # Resume parent first, then children
+            parent.resume()
+            for child in parent.children(recursive=True):
+                child.resume()
+        except Exception as exc:
+            self.append_log(f"[GUI] Resume failed: {exc}\n")
+
+    # Modified by Claude-Sonnet-4.6 | 2026-03-12
+    def _proc_tree_kill(self) -> None:
+        """Kill the entire subprocess tree, including all child processes.
+
+        On Windows, child processes (e.g. FFmpeg) are NOT automatically killed
+        when their parent Python process dies.  We therefore use the Windows-native
+        `taskkill /F /T /PID` command as the primary path, which atomically
+        terminates the entire process tree with no snapshot race-condition.
+        psutil is kept as a fallback for non-Windows platforms.
+        """
+        if not self._proc:
+            return
+
+        pid = self._proc.pid
+
+        # Primary path on Windows: taskkill /F (force) /T (tree) kills the
+        # parent AND all descendants in one OS call.  This is more reliable
+        # than psutil on Windows because it has no snapshot timing gap.
+        if sys.platform == "win32":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                )
+                return
+            except Exception as exc:
+                self.append_log(f"[GUI] taskkill failed ({exc}); falling back to psutil\n")
+
+        # Non-Windows (or taskkill fallback): walk the tree with psutil.
+        try:
+            import psutil
+            parent = psutil.Process(pid)
+            # Snapshot children BEFORE killing parent so the list is complete.
+            children = parent.children(recursive=True)
+            for child in children:
+                child.kill()
+            parent.kill()
+        except Exception:
+            # Last resort: kills only the direct parent process.
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def pause_processing(self) -> None:
+        """Toggle pause/resume on the running process tree."""
+        if not self._proc or self._proc.poll() is not None:
+            return
+
+        if self._proc_paused:
+            # Currently paused — resume it
+            self._proc_tree_resume()
+            self._proc_paused = False
+            self.set_status("Running…")
+            if self._proc_pause_btn:
+                self._proc_pause_btn.configure(text="PAUSE")
+            self.append_log("[GUI] Processing resumed.\n")
+        else:
+            # Currently running — pause it
+            self._proc_tree_suspend()
+            self._proc_paused = True
+            self.set_status("Paused")
+            if self._proc_pause_btn:
+                self._proc_pause_btn.configure(text="RESUME")
+            self.append_log("[GUI] Processing paused.\n")
+
+    # Created by Claude-Sonnet-4.6 | 2026-03-11
+    def stop_processing(self) -> None:
+        """Kill the running process tree and reset UI to idle."""
+        if not self._proc or self._proc.poll() is not None:
+            return
+
+        self._proc_stop_requested = True
+
+        # If paused, resume first so the kill signal propagates cleanly
+        if self._proc_paused:
+            self._proc_tree_resume()
+            self._proc_paused = False
+
+        self._proc_tree_kill()
+        self.append_log("[GUI] Processing stopped by user.\n")
+        self.set_status("Stopped")
+
     # Modified by gpt-5.2 | 2026-01-13_01
     def run_processing(self, host_path: str, guest_path: str) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
         if self._proc and self._proc.poll() is None:
             messagebox.showwarning("Already running", "A job is already running.")
             return
 
         self.clear_logs()
         self.clear_progress()
-        self.set_status("Running…")
+        self._clear_modded_rows()
 
-        # Reset FFmpeg progress line counter for new process
+        # Reset FFmpeg progress line counter + stop-request flag for new run
         reset_progress_counter()
+        self._proc_stop_requested = False
+        self._proc_paused = False
 
-        # Progress header is now always visible (no need to show it here)
+        if not self._reload_runtime_settings():
+            return
+
+        self.set_status("Running…")
+        self.after(0, self._proc_ui_update, True)
 
         cmd = [
             sys.executable,
@@ -325,12 +530,15 @@ class AVCleanerGUI(tk.Tk):
         ]
         self.append_log("$ " + " ".join(cmd) + "\n")
 
+        # Modified by gpt-5.4 | 2026-03-07
         def _worker() -> None:
-            import re
-            
             _result_host: str | None = None
             _result_guest: str | None = None
-            
+            # Flag: play the completion chime only when processing actually finished
+            # (not when the user manually stopped it). Set exactly once per run so
+            # the alert never fires more than once regardless of code path taken.
+            _play_alert = False
+
             try:
                 self._proc = subprocess.Popen(
                     cmd,
@@ -344,7 +552,7 @@ class AVCleanerGUI(tk.Tk):
                 for line in self._proc.stdout:
                     # Format FFmpeg progress lines to align with header columns
                     formatted_line, is_progress = format_ffmpeg_progress_line(line)
-                    
+
                     if is_progress:
                         # Only show every other progress line to reduce console spam
                         if should_show_progress_line(show_every_nth=2):
@@ -352,79 +560,183 @@ class AVCleanerGUI(tk.Tk):
                     else:
                         # Pass through non-progress lines as-is
                         self.append_log(line)
-                        if _should_mirror_to_progress(line):
-                            self.append_progress(line)
-                        
-                    # Capture [RESULT] line with authoritative output paths.
-                    # Use pattern that handles paths with spaces: host=<path> guest=<path>
-                    # Match host= up to ' guest=' delimiter, then guest= to end of line.
-                    if line.startswith("[RESULT]"):
-                        m = re.search(r'host=(.+?)\s+guest=(.+)$', line.strip())
-                        if m:
-                            _result_host = m.group(1).strip()
-                            _result_guest = m.group(2).strip()
-                        
+                        if progress_line_mirror_should(line):
+                            # Transform line for PROGRESS pane (e.g. truncate filler-word detail).
+                            # The original line is preserved for the CONSOLE above.
+                            self.append_progress(progress_line_transform(line))
+
+                    result_host, result_guest = result_line_paths_parse(line)
+                    if result_host and result_guest:
+                        _result_host = result_host
+                        _result_guest = result_guest
+
                 code = self._proc.wait()
-                if code == 0:
+
+                if self._proc_stop_requested:
+                    # User-initiated stop; status already set by stop_processing()
+                    pass
+                elif code == 0:
                     # Use paths emitted by the pipeline, fall back to computed paths.
                     host_processed = _result_host or make_processed_output_path(host_path)
                     guest_processed = _result_guest or make_processed_output_path(guest_path)
 
                     if os.path.exists(host_processed):
-                        self.after(0, self._set_row_for_path, "host", host_processed)
+                        self.after(0, self._set_modded_row_for_path, "host", host_processed)
                     if os.path.exists(guest_processed):
-                        self.after(0, self._set_row_for_path, "guest", guest_processed)
+                        self.after(0, self._set_modded_row_for_path, "guest", guest_processed)
 
                     self.set_status("Done")
+                    _play_alert = True
                 else:
                     self.set_status(f"Failed (exit {code})")
+                    _play_alert = True
             except Exception as e:
                 self.append_log(f"\n[GUI] Failed to run: {e}\n")
                 self.set_status("Failed")
+                _play_alert = True
+            finally:
+                # Always restore buttons to idle state when the worker exits.
+                self.after(0, self._proc_ui_update, False)
+                # Play the completion chime exactly once, directly from the
+                # worker thread.  Calling from here (not via self.after) avoids
+                # coupling the sound to the Tkinter event loop — if the user
+                # closes the window mid-run the chime still plays cleanly and
+                # winsound never queues into a partially-destroyed Tk instance.
+                if _play_alert:
+                    processing_complete_alert_play()
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _create_file_row(self, parent: tk.Widget, row_index: int, role: str, *, button_text: str | None = None) -> None:
+        # Modified by gpt-5.4 | 2026-03-08
+        # Modified by gpt-5.4 | 2026-03-07
+        role_parent = parent
+        file_parent = parent
+        size_parent = parent
+        length_parent = parent
+
+        if getattr(parent, "_files_grid_enabled", False):
+            role_parent = file_grid_cell_create(self, parent, row_index, 0, sticky="nsew")
+            file_parent = file_grid_cell_create(self, parent, row_index, 1, sticky="nsew")
+            size_parent = file_grid_cell_create(self, parent, row_index, 2, sticky="nsew")
+            length_parent = file_grid_cell_create(self, parent, row_index, 3, sticky="nsew")
+
         browse_btn = self._make_btn(
-            parent,
+            role_parent,
             button_text or "BROWSE",
             command=lambda r=role: self._select_file(r),
             kind="secondary",
         )
-        browse_btn.grid(row=row_index, column=0, padx=8, pady=6, sticky="w")
+        browse_btn.pack(anchor="w", padx=8, pady=6)
 
         file_var = tk.StringVar(value="")
         size_var = tk.StringVar(value="")
         length_var = tk.StringVar(value="")
 
+        file_cell = tk.Frame(file_parent, bg=self._palette["panel"])
+        file_cell.pack(fill="both", expand=True, padx=8, pady=6)
+        file_cell.columnconfigure(1, weight=1)
+
+        play_btn = tk.Button(
+            file_cell,
+            text="▶",
+            command=lambda r=role: self._play_source_row(r),
+            font=self._f(self._fonts["body"], "bold"),
+            bg=self._palette["panel"],
+            fg=self._ui_colors["accent_line"],
+            activebackground=self._palette["panel2"],
+            activeforeground=self._ui_colors["accent_font"],
+            relief="flat",
+            bd=0,
+            padx=2,
+            pady=0,
+            highlightthickness=0,
+        )
+        play_btn.grid(row=0, column=0, padx=(0, 8), sticky="w")
+        play_btn.grid_remove()
+        try:
+            play_btn.configure(cursor="hand2")
+        except tk.TclError:
+            pass
+        play_btn.bind("<Enter>", lambda _evt: play_btn.configure(bg=self._palette["panel2"]))
+        play_btn.bind("<Leave>", lambda _evt: play_btn.configure(bg=self._palette["panel"]))
+
         tk.Label(
-            parent,
+            file_cell,
             textvariable=file_var,
             anchor="w",
             font=self._mono(),
             bg=self._palette["panel"],
             fg=self._palette["text"],
-        ).grid(row=row_index, column=1, padx=8, pady=6, sticky="ew")
+        ).grid(row=0, column=1, sticky="ew")
         tk.Label(
-            parent,
+            size_parent,
             textvariable=size_var,
             anchor="w",
             font=self._mono(),
             bg=self._palette["panel"],
             fg=self._palette["muted"],
-        ).grid(row=row_index, column=2, padx=8, pady=6, sticky="w")
+        ).pack(anchor="w", padx=8, pady=6)
         tk.Label(
-            parent,
+            length_parent,
             textvariable=length_var,
             anchor="w",
             font=self._mono(),
             bg=self._palette["panel"],
             fg=self._palette["muted"],
-        ).grid(row=row_index, column=3, padx=8, pady=6, sticky="w")
+        ).pack(anchor="w", padx=8, pady=6)
 
-        self._rows[role] = FileRowState(path=None, file_var=file_var, size_var=size_var, length_var=length_var)
+        self._rows[role] = FileRowState(
+            path=None,
+            file_var=file_var,
+            size_var=size_var,
+            length_var=length_var,
+            play_btn=play_btn,
+        )
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _create_output_row(self, parent: tk.Widget, row_index: int, role: str, *, label_text: str) -> None:
+        self._modded_rows[role] = output_row_create(
+            self,
+            parent,
+            row_index,
+            role,
+            label_text=label_text,
+            grid_style=bool(getattr(parent, "_files_grid_enabled", False)),
+        )
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _play_modded_row(self, role: str) -> None:
+        """Open a processed host/guest output in the configured video player."""
+
+        row = self._modded_rows[role]
+        if not row.path:
+            messagebox.showinfo("Play", "No processed video is available yet.")
+            return
+
+        try:
+            video_player_open(row.path, player_path=str(GUI.get("default_video_player", "")))
+            self.set_status(f"Opened {os.path.basename(row.path)}")
+        except (FileNotFoundError, OSError) as exc:
+            messagebox.showerror("Play failed", str(exc))
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _play_source_row(self, role: str) -> None:
+        """Open a selected source host/guest video in the configured video player."""
+
+        row = self._rows[role]
+        if not row.path:
+            messagebox.showinfo("Play", "No source video is selected yet.")
+            return
+
+        try:
+            video_player_open(row.path, player_path=str(GUI.get("default_video_player", "")))
+            self.set_status(f"Opened {os.path.basename(row.path)}")
+        except (FileNotFoundError, OSError) as exc:
+            messagebox.showerror("Play failed", str(exc))
 
     def _select_file(self, role: str) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
         title = "Select Host Video" if role == "host" else "Select Guest Video"
         video_path = filedialog.askopenfilename(
             title=title,
@@ -436,25 +748,48 @@ class AVCleanerGUI(tk.Tk):
         if not video_path:
             return
 
+        self._clear_modded_rows()
         self._set_row_for_path(role=role, video_path=video_path)
 
     def _set_row_for_path(self, role: str, video_path: str) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
         row = self._rows[role]
-        row.path = video_path
+        self._populate_file_row(row, video_path)
 
+    # Created by gpt-5.4 | 2026-03-07
+    def _set_modded_row_for_path(self, role: str, video_path: str) -> None:
+        self._populate_file_row(self._modded_rows[role], video_path)
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _populate_file_row(self, row: FileRowState, video_path: str) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
+        row.path = video_path
         row.file_var.set(os.path.basename(video_path))
+        if row.play_btn is not None:
+            row.play_btn.grid()
 
         try:
             size_bytes = os.path.getsize(video_path)
-            row.size_var.set(format_bytes(size_bytes))
+            row.size_var.set(format_size_mb(size_bytes))
         except OSError:
             row.size_var.set("")
 
         try:
             duration_s = get_video_duration_seconds(video_path)
-            row.length_var.set(f"{duration_s:.2f}s")
+            row.length_var.set(format_duration_display(duration_s))
         except Exception:
             row.length_var.set("")
+
+    # Created by gpt-5.4 | 2026-03-07
+    def _clear_modded_rows(self) -> None:
+        # Modified by gpt-5.4 | 2026-03-07
+        for row in self._modded_rows.values():
+            row.path = None
+            row.file_var.set("")
+            row.size_var.set("")
+            row.length_var.set("")
+            if row.play_btn is not None:
+                row.play_btn.grid_remove()
 
     def save_fixed_outputs(self, host: str, guest: str) -> None:
         try:

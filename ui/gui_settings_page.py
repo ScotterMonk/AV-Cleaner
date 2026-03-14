@@ -5,6 +5,8 @@ import tkinter as tk
 from tkinter import messagebox
 
 from ui.gui_config_editor import ConfigEditor
+from ui.video_player_picker import video_player_pick
+from utils.video_player_discovery import video_player_discover, video_player_platform_label
 
 
 # Settings page layout tuning
@@ -45,6 +47,7 @@ class SettingsPage(tk.Frame):
 
         self._reload()
 
+    # Modified by gpt-5.4 | 2026-03-07
     def _build_gui_form(self, parent: tk.Frame) -> None:
         app = self._app
         self._vars: dict[str, tk.StringVar] = {
@@ -57,6 +60,7 @@ class SettingsPage(tk.Frame):
             "font_mono_family": tk.StringVar(),
             "font_mono_size": tk.StringVar(),
             "button_height": tk.StringVar(),
+            "default_video_player": tk.StringVar(),
             # Accent colors (split for easy theming)
             "ui_button_caption_color": tk.StringVar(),
             "ui_accent_font_color": tk.StringVar(),
@@ -96,6 +100,31 @@ class SettingsPage(tk.Frame):
         add_row("Mono family", "font_mono_family")
         add_row("Mono size", "font_mono_size")
         add_row("Button height", "button_height")
+
+        player_row = tk.Frame(parent, bg=app._palette["panel"])
+        player_row.pack(fill="x", pady=SETTINGS_GUI_FIELD_ROW_GAP_PX)
+        tk.Label(
+            player_row,
+            text="Default Video Player",
+            font=app._mono(weight="bold"),
+            bg=app._palette["panel"],
+            fg=app._palette["muted"],
+        ).pack(side="left")
+        app._make_btn(player_row, "SCAN", self._scan_default_video_player, kind="secondary").pack(side="right")
+        player_ent = tk.Entry(
+            player_row,
+            textvariable=self._vars["default_video_player"],
+            font=app._mono(),
+            bg=app._palette["panel2"],
+            fg=app._palette["text"],
+            insertbackground=app._ui_colors["accent_line"],
+            relief="flat",
+            highlightthickness=2,
+            highlightbackground=app._palette["edge2"],
+            highlightcolor=app._ui_colors["accent_line"],
+        )
+        player_ent.pack(side="right", fill="x", expand=True, padx=(12, 8))
+
         add_row("Button caption color", "ui_button_caption_color")
         add_row("Accent font color", "ui_accent_font_color")
         add_row("Accent line color", "ui_accent_line_color")
@@ -104,6 +133,8 @@ class SettingsPage(tk.Frame):
             parent,
             text=(
                 "These values are written into the GUI dict in config.py.\n"
+                "SCAN detects media players for the current operating system.\n"
+                "Choose one, then use SAVE TO config.py to persist it.\n"
                 "Restart GUI to fully apply typography/layout/color changes.\n"
                 "Colors accept #RRGGBB."
             ),
@@ -114,14 +145,45 @@ class SettingsPage(tk.Frame):
         )
         note.pack(anchor="w", pady=(14, 0))
 
+    # Created by gpt-5.4 | 2026-03-07
+    def _scan_default_video_player(self) -> None:
+        options = video_player_discover()
+        if not options:
+            platform_label = video_player_platform_label()
+            messagebox.showinfo(
+                "No media players found",
+                f"No supported media players were found for {platform_label}.",
+            )
+            return
+
+        selected_path = video_player_pick(self, self._app, options)
+        if not selected_path:
+            return
+
+        self._vars["default_video_player"].set(selected_path)
+
+        player_name = Path(selected_path).name
+        self._app.set_status(f"Default video player selected: {player_name}. Click SAVE TO config.py.")
+
+    # Modified by gpt-5.4 | 2026-03-07
     def _build_pipeline_form(self, parent: tk.Frame) -> None:
         app = self._app
         self._pipe_vars: dict[str, tk.BooleanVar] = {}
+
+        self._word_vars: dict[str, tk.StringVar] = {
+            "words_to_remove": tk.StringVar(),
+            "confidence_required_host": tk.StringVar(value="1.00"),
+            "confidence_required_guest": tk.StringVar(value="0.90"),
+            "confidence_bonus_per_word": tk.StringVar(value="0.05"),
+            "filler_mute_inset_ms": tk.StringVar(value="30"),
+            "filler_mute_gap_threshold_ms": tk.StringVar(value="60"),
+        }
 
         # Quality preset vars (PODCAST_HIGH_QUALITY)
         self._qual_vars: dict[str, tk.StringVar] = {
             "silence_threshold_db": tk.StringVar(value="-45"),
             "max_pause_duration": tk.StringVar(value="2"),
+            "new_pause_duration": tk.StringVar(value="0.5"),
             "silence_window_ms": tk.StringVar(value="100"),
             "spike_threshold_db": tk.StringVar(value="-5"),
             "normalization_standard_target": tk.StringVar(value="-16.0"),
@@ -179,7 +241,8 @@ class SettingsPage(tk.Frame):
         self._pipe_canvas.bind("<Enter>", _bind_mousewheel)
         self._pipe_canvas.bind("<Leave>", _unbind_mousewheel)
 
-    def _render_pipeline_toggles(self, pipe_cfg: dict, qual_presets: dict) -> None:
+    # Modified by gpt-5.4 | 2026-03-07
+    def _render_pipeline_toggles(self, pipe_cfg: dict, qual_presets: dict, words_cfg: dict) -> None:
         app = self._app
         for c in self._pipe_container.winfo_children():
             c.destroy()
@@ -192,6 +255,7 @@ class SettingsPage(tk.Frame):
         # Load quality-preset settings
         self._qual_vars["silence_threshold_db"].set(str(preset.get("silence_threshold_db", -45)))
         self._qual_vars["max_pause_duration"].set(str(preset.get("max_pause_duration", 2)))
+        self._qual_vars["new_pause_duration"].set(str(preset.get("new_pause_duration", 0.5)))
         self._qual_vars["silence_window_ms"].set(str(preset.get("silence_window_ms", 100)))
         self._qual_vars["spike_threshold_db"].set(str(preset.get("spike_threshold_db", -5)))
 
@@ -208,6 +272,16 @@ class SettingsPage(tk.Frame):
         # Default quality display (CRF as master, or fallback to NVENC CQ)
         start_q = preset.get("crf", 23)
         self._enc_quality.set(str(start_q))
+
+        words_to_remove = words_cfg.get("words_to_remove", [])
+        if not isinstance(words_to_remove, list):
+            words_to_remove = []
+        self._word_vars["words_to_remove"].set(", ".join(str(word).strip() for word in words_to_remove if str(word).strip()))
+        self._word_vars["confidence_required_host"].set(str(words_cfg.get("confidence_required_host", 1.0)))
+        self._word_vars["confidence_required_guest"].set(str(words_cfg.get("confidence_required_guest", 0.9)))
+        self._word_vars["confidence_bonus_per_word"].set(str(words_cfg.get("confidence_bonus_per_word", 0.05)))
+        self._word_vars["filler_mute_inset_ms"].set(str(words_cfg.get("filler_mute_inset_ms", 30)))
+        self._word_vars["filler_mute_gap_threshold_ms"].set(str(words_cfg.get("filler_mute_gap_threshold_ms", 60)))
 
         def mk_section(title: str) -> tk.Frame:
             tk.Label(
@@ -271,6 +345,7 @@ class SettingsPage(tk.Frame):
         qual_sec = mk_section("QUALITY PRESETS")
         mk_kv_row(qual_sec, "Silence threshold (dB)", self._qual_vars["silence_threshold_db"], width=10)
         mk_kv_row(qual_sec, "Max pause duration (sec)", self._qual_vars["max_pause_duration"], width=10)
+        mk_kv_row(qual_sec, "New pause duration (sec)", self._qual_vars["new_pause_duration"], width=10)
         mk_kv_row(qual_sec, "Silence window (ms)", self._qual_vars["silence_window_ms"], width=10)
         mk_kv_row(qual_sec, "Spike threshold (dB)", self._qual_vars["spike_threshold_db"], width=10)
 
@@ -312,6 +387,19 @@ class SettingsPage(tk.Frame):
         for i, p in enumerate(pipe_cfg.get("processors", [])):
             t = str(p.get("type"))
             mk_toggle(proc_sec, f"processors:{i}", t, bool(p.get("enabled")))
+
+        words_sec = mk_section("FILLER WORD DETECTION")
+        mk_kv_row(words_sec, "Words to remove (comma-separated)", self._word_vars["words_to_remove"], width=28)
+        mk_kv_row(words_sec, "Host confidence required", self._word_vars["confidence_required_host"], width=10)
+        mk_kv_row(words_sec, "Guest confidence required", self._word_vars["confidence_required_guest"], width=10)
+        mk_kv_row(words_sec, "Confidence bonus per word", self._word_vars["confidence_bonus_per_word"], width=10)
+        mk_kv_row(words_sec, "Mute inset (ms)", self._word_vars["filler_mute_inset_ms"], width=10)
+        mk_kv_row(
+            words_sec,
+            "Mute gap threshold (ms)",
+            self._word_vars["filler_mute_gap_threshold_ms"],
+            width=10,
+        )
 
         # --- Encoding Section ---
         enc_sec = mk_section("VIDEO ENCODING")
@@ -387,7 +475,10 @@ class SettingsPage(tk.Frame):
 
         note = tk.Label(
             self._pipe_container,
-            text="Settings save to QUALITY_PRESETS & PIPELINE_CONFIG in config.py.\nRestart GUI to apply full pipeline changes.",
+            text=(
+                "Settings save to QUALITY_PRESETS, PIPELINE_CONFIG, and WORDS_TO_REMOVE in config.py.\n"
+                "Words to remove should be comma-separated. Restart GUI to apply full pipeline changes."
+            ),
             font=app._mono(),
             bg=app._palette["panel"],
             fg=app._palette["muted"],
@@ -395,18 +486,21 @@ class SettingsPage(tk.Frame):
         )
         note.pack(anchor="w", pady=(14, 0))
 
+    # Modified by gpt-5.4 | 2026-03-07
     def _reload(self) -> None:
         try:
-            gui_dict, pipe_cfg, qual_presets = ConfigEditor.load_gui_and_pipeline(self._config_path)
+            gui_dict, pipe_cfg, qual_presets, words_cfg = ConfigEditor.load_gui_pipeline_quality_words(self._config_path)
         except Exception as e:
             messagebox.showerror("Config load failed", str(e))
             return
 
         for k, v in self._vars.items():
             v.set(str(gui_dict.get(k, "")))
-        self._render_pipeline_toggles(pipe_cfg, qual_presets)
+        self._render_pipeline_toggles(pipe_cfg, qual_presets, words_cfg)
         self._app.set_status("Settings loaded")
 
+    # Modified by gpt-5.4 | 2026-03-07
+    # Modified by gpt-5.4 | 2026-03-07
     def _save(self) -> None:
         def to_int(key: str) -> int:
             raw = self._vars[key].get().strip()
@@ -423,6 +517,24 @@ class SettingsPage(tk.Frame):
                 raise ValueError(f"{key} is required")
             return raw
 
+        def to_float_word(key: str, label: str) -> float:
+            raw = self._word_vars[key].get().strip()
+            if raw == "":
+                raise ValueError(f"{label} is required")
+            try:
+                return float(raw)
+            except ValueError:
+                raise ValueError(f"{label} must be a number")
+
+        def to_int_word(key: str, label: str) -> int:
+            raw = self._word_vars[key].get().strip()
+            if raw == "":
+                raise ValueError(f"{label} is required")
+            try:
+                return int(raw)
+            except ValueError:
+                raise ValueError(f"{label} must be an integer")
+
         try:
             gui_update = {
                 "gui_width": to_int("gui_width"),
@@ -434,12 +546,13 @@ class SettingsPage(tk.Frame):
                 "font_mono_family": self._vars["font_mono_family"].get().strip() or "Cascadia Mono",
                 "font_mono_size": to_int("font_mono_size"),
                 "button_height": to_int("button_height"),
+                "default_video_player": self._vars["default_video_player"].get().strip(),
                 "ui_button_caption_color": to_color("ui_button_caption_color"),
                 "ui_accent_font_color": to_color("ui_accent_font_color"),
                 "ui_accent_line_color": to_color("ui_accent_line_color"),
             }
 
-            _, pipe_cfg, qual_presets = ConfigEditor.load_gui_and_pipeline(self._config_path)
+            _, pipe_cfg, qual_presets, words_cfg = ConfigEditor.load_gui_pipeline_quality_words(self._config_path)
 
             # Update Pipeline Config
             for k, var in self._pipe_vars.items():
@@ -479,6 +592,9 @@ class SettingsPage(tk.Frame):
             preset["max_pause_duration"] = to_float_s(
                 self._qual_vars["max_pause_duration"], "Max pause duration (sec)"
             )
+            preset["new_pause_duration"] = to_float_s(
+                self._qual_vars["new_pause_duration"], "New pause duration (sec)"
+            )
             preset["silence_window_ms"] = to_int_s(self._qual_vars["silence_window_ms"], "Silence window (ms)")
             preset["spike_threshold_db"] = to_int_s(self._qual_vars["spike_threshold_db"], "Spike threshold (dB)")
 
@@ -502,7 +618,33 @@ class SettingsPage(tk.Frame):
 
             preset["nvenc"]["cq"] = qual_val
 
-            ConfigEditor.write_gui_and_pipeline(self._config_path, gui_update, pipe_cfg, qual_presets)
+            words_raw = self._word_vars["words_to_remove"].get().strip()
+            words_cfg["words_to_remove"] = [
+                word.strip() for word in words_raw.split(",") if word.strip()
+            ]
+            words_cfg["confidence_required_host"] = to_float_word(
+                "confidence_required_host", "Host confidence required"
+            )
+            words_cfg["confidence_required_guest"] = to_float_word(
+                "confidence_required_guest", "Guest confidence required"
+            )
+            words_cfg["confidence_bonus_per_word"] = to_float_word(
+                "confidence_bonus_per_word", "Confidence bonus per word"
+            )
+            words_cfg["filler_mute_inset_ms"] = to_int_word(
+                "filler_mute_inset_ms", "Mute inset (ms)"
+            )
+            words_cfg["filler_mute_gap_threshold_ms"] = to_int_word(
+                "filler_mute_gap_threshold_ms", "Mute gap threshold (ms)"
+            )
+
+            ConfigEditor.write_gui_and_pipeline(
+                self._config_path,
+                gui_update,
+                pipe_cfg,
+                qual_presets,
+                words_cfg,
+            )
         except Exception as e:
             messagebox.showerror("Save failed", str(e))
             return
