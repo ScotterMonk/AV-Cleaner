@@ -292,9 +292,10 @@ class TestFillerWordDetectorConfidenceGating:
         assert result[0]["action"] == "mute"
 
     def test_host_word_below_threshold_skipped(self):
-        # 0.99 < 1.0 → skipped (still returned, but marked)
+        # config: confidence_required_host=1.08, bonus_per_word=0.10
+        # effective_required = 1.08 - (1 * 0.10) = 0.98; 0.97 < 0.98 → skipped
         det = self._detector()
-        result = det._filter_by_confidence([self._match("host", 0.99)], "host")
+        result = det._filter_by_confidence([self._match("host", 0.97)], "host")
         assert len(result) == 1
         assert result[0]["action"] == "skipped"
 
@@ -306,9 +307,10 @@ class TestFillerWordDetectorConfidenceGating:
         assert result[0]["action"] == "mute"
 
     def test_guest_word_below_threshold_skipped(self):
-        # 0.91 < 0.92 → skipped
+        # config: confidence_required_guest=0.95, bonus_per_word=0.10
+        # effective_required = 0.95 - (1 * 0.10) = 0.85; 0.84 < 0.85 → skipped
         det = self._detector()
-        result = det._filter_by_confidence([self._match("guest", 0.91)], "guest")
+        result = det._filter_by_confidence([self._match("guest", 0.84)], "guest")
         assert len(result) == 1
         assert result[0]["action"] == "skipped"
 
@@ -404,7 +406,7 @@ class TestFillerWordLogHelpers:
             "confidence": 0.9500, "action": "mute",
         }
         line = _log_filler_word_line(detail)
-        assert line == '00:01:05 "uh" (confidence: 0.9500) — mute'
+        assert line == '00:01:05 "uh" (confidence: 0.9500) muted'
 
     def test_log_filler_word_line_skipped(self):
         from core.pipeline import _log_filler_word_line
@@ -413,13 +415,13 @@ class TestFillerWordLogHelpers:
             "confidence": 0.4200, "action": "skipped",
         }
         line = _log_filler_word_line(detail)
-        assert line == '01:01:01 "you know" (confidence: 0.4200) — skipped'
+        assert line == '01:01:01 "you know" (confidence: 0.4200) skipped'
 
     def test_log_filler_word_line_defaults_action_to_mute(self):
         from core.pipeline import _log_filler_word_line
         detail = {"track": "host", "text": "um", "start_sec": 0.0, "end_sec": 0.3}
         line = _log_filler_word_line(detail)
-        assert "— mute" in line
+        assert line.endswith(" muted")
 
 
 # ── CrossTalkDetector self-healing signature coverage ────────────────────────

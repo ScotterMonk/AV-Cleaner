@@ -15,17 +15,20 @@ from pathlib import Path
 logger = get_logger(__name__)
 
 
+# Modified by gpt-5.4 | 2026-03-15
 def _log_filler_word_line(detail: dict) -> str:
     """Format a single filler-word detail into a consistent log line.
 
-    Returns a string like:  00:01:05 "uh" (confidence: 0.9500) — muted
+    Returns a string like:  00:01:05 "uh" (confidence: 0.9500) muted
     Used by both host and guest logging so the format is identical.
     """
     timestamp = seconds_to_hms(float(detail["start_sec"])).split(".", 1)[0]
     word = str(detail.get("text") or "").strip()
     confidence = float(detail.get("confidence", 0.0) or 0.0)
-    action = str(detail.get("action") or "mute")
-    return f'{timestamp} "{word}" (confidence: {confidence:.4f}) — {action}'
+    action = str(detail.get("action") or "mute").strip().lower()
+    if action == "mute":
+        action = "muted"
+    return f'{timestamp} "{word}" (confidence: {confidence:.4f}) {action}'
 
 
 def _log_filler_word_details(word_mute_details: list) -> None:

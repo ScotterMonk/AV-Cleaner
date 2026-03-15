@@ -41,13 +41,15 @@ class FillerWordDetector(BaseDetector):
     # ── Public interface ───────────────────────────────────────────────────
 
     # Modified by gpt-5.4 | 2026-03-08
-    def detect(self, host_audio, guest_audio) -> List[Dict[str, Any]]:
+    def detect(self, host_audio, guest_audio, detection_results=None) -> List[Dict[str, Any]]:
         """
         Transcribe both tracks and return merged word-removal ranges.
 
         Args:
-            host_audio:  pydub AudioSegment for the host track.
-            guest_audio: pydub AudioSegment for the guest track.
+            host_audio:        pydub AudioSegment for the host track.
+            guest_audio:       pydub AudioSegment for the guest track.
+            detection_results: accumulated pipeline results dict; used to
+                               resolve video paths for transcript file output.
 
         Returns:
             Combined list of (start_sec, end_sec) tuples from both tracks,
@@ -74,11 +76,22 @@ class FillerWordDetector(BaseDetector):
             ", ".join(repr(w) for w in target_words),
         )
 
+        # Resolve video paths so _process_track can place transcript files
+        # beside the processed output (same parent directory as input video).
+        dr = detection_results or {}
+        host_video_path = dr.get("host_video_path")
+        guest_video_path = dr.get("guest_video_path")
+
         headers = {"authorization": api_key}
         segments: List[Dict[str, Any]] = []
 
-        for label, audio in (("host", host_audio), ("guest", guest_audio)):
-            track_segments = self._process_track(label, audio, target_words, base_url, headers)
+        for label, audio, video_path in (
+            ("host", host_audio, host_video_path),
+            ("guest", guest_audio, guest_video_path),
+        ):
+            track_segments = self._process_track(
+                label, audio, target_words, base_url, headers, video_path
+            )
             muted = [s for s in track_segments if s.get("action") == "mute"]
             skipped = [s for s in track_segments if s.get("action") == "skipped"]
             logger.info(
@@ -106,15 +119,24 @@ class FillerWordDetector(BaseDetector):
         target_words: List[str],
         base_url: str,
         headers: dict,
+        video_path: str | None = None,
     ) -> List[Dict[str, Any]]:
-        """Export one pydub AudioSegment, upload it, transcribe, return matches."""
+        """Export one pydub AudioSegment, upload it, transcribe, return matches.
+
+        Saves ``transcript_{label}.txt`` beside the input video after a
+        successful transcription (overwrites any file from a prior run).
+        """
         temp_path = None
         try:
             temp_path = self._export_to_temp_mp3(audio, label)
             audio_url = self._upload_audio(temp_path, base_url, headers, label)
             transcript_words = self._transcribe(audio_url, base_url, headers, label)
             matches = self._find_matches_detailed(transcript_words, target_words, label)
-            return self._filter_by_confidence(matches, label)
+            filtered = self._filter_by_confidence(matches, label)
+            # Persist filler word results beside the video output directory.
+            if video_path is not None:
+                self._save_filler_words(filtered, label, video_path)
+            return filtered
         except Exception as exc:
             logger.error("[FillerWordDetector] %s track failed: %s", label, exc)
             return []
@@ -196,6 +218,41 @@ class FillerWordDetector(BaseDetector):
             # Still processing -- wait and retry
             logger.debug("[FillerWordDetector] %s status=%s, retrying in %ds...", label, status, _POLL_INTERVAL_SEC)
             time.sleep(_POLL_INTERVAL_SEC)
+
+    def _save_filler_words(
+        self, matches: List[Dict[str, Any]], label: str, video_path: str
+    ) -> None:
+        """Write detected filler words to ``{label}_filler_words.txt`` beside
+        the input video.  Overwrites any file from a prior run.
+
+        Each line format:
+            hh:mm:ss:ms - "{word}" - confidence: 0.9500 - muted
+        """
+        out_dir = os.path.dirname(os.path.abspath(video_path))
+        out_path = os.path.join(out_dir, f"{label}_filler_words.txt")
+        lines = []
+        for m in matches:
+            start_sec = float(m.get("start_sec", 0.0))
+            hh = int(start_sec // 3600)
+            mm = int((start_sec % 3600) // 60)
+            ss = int(start_sec % 60)
+            ms = int(round((start_sec * 1000) % 1000))
+            timestamp = f"{hh:02d}:{mm:02d}:{ss:02d}:{ms:03d}"
+            word = str(m.get("text") or "").strip()
+            conf = float(m.get("confidence", 0.0) or 0.0)
+            action = str(m.get("action") or "mute")
+            lines.append(f'{timestamp} - "{word}" - confidence: {conf:.4f} - {action}')
+        try:
+            with open(out_path, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines))
+                if lines:
+                    fh.write("\n")
+            logger.info(
+                "[FillerWordDetector] Saved %s filler words (%d) -> %s",
+                label, len(lines), out_path,
+            )
+        except OSError as exc:
+            logger.warning("[FillerWordDetector] Could not save filler words file: %s", exc)
 
     # Modified by gpt-5.4 | 2026-03-08
     def _find_matches(

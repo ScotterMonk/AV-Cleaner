@@ -4,8 +4,8 @@
 [RUN SUMMARY] ORIGINAL FILES - Host length: N/A, Guest length: N/A
 [RUN SUMMARY] PROCESSED FILES - Host length: N/A, Guest length: N/A
 [RUN SUMMARY] PROCESSED FILES - Host length: N/A, Guest length: N/A
-[RUN COMPLETE] FULL_PIPELINE - Took 00:00:00.002
-[RUN COMPLETE] FULL_PIPELINE - Took 00:00:00.002
+[RUN COMPLETE] FULL_PIPELINE - Took 00:00:00.004
+[RUN COMPLETE] FULL_PIPELINE - Took 00:00:00.004
 [FUNCTION START] Pad end of shorter video (host) to fit longer video length
 [FUNCTION START] Pad end of shorter video (host) to fit longer video length
 [PREFLIGHT COMPLETE] Padded shorter video (host) to fit longer video - Preflight pair written to 00:10 duration - Took 00:00:00.0

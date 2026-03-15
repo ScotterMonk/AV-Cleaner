@@ -15,9 +15,9 @@ from ui.gui_config_editor import ConfigEditor
 from ui.gui_helpers import FileRowState, format_duration_display, format_size_mb, get_video_duration_seconds
 from ui.gui_output_rows import file_grid_cell_create, output_row_create
 from ui.gui_pages import MainPage
-from ui.gui_process_helpers import progress_line_mirror_should, progress_line_transform, result_line_paths_parse
+from ui.gui_process_helpers import progress_line_mirror_should, result_line_paths_parse
 from ui.gui_settings_page import SettingsPage
-from ui.gui_ffmpeg_formatter import format_ffmpeg_progress_line, should_show_progress_line, reset_progress_counter
+from ui.gui_ffmpeg_formatter import format_ffmpeg_progress_line, reset_progress_counter
 from ui.gui_outputs import save_fixed_outputs as gui_save_fixed_outputs
 from utils.processing_alert import processing_complete_alert_play
 from utils.path_helpers import make_processed_output_path
@@ -65,6 +65,11 @@ class AVCleanerGUI(tk.Tk):
         }
 
         self._button_height = int(GUI.get("button_height", 12))
+
+        # Pane width proportions — used as Tkinter grid column weights.
+        # Values should sum to 100; ratio drives the split.
+        self._pane_console_width_pct = int(GUI.get("pane_console_width_pct", 50))
+        self._pane_filler_words_found_pct = int(GUI.get("pane_filler_words_found_pct", 50))
 
         width = int(GUI.get("gui_width", 1100))
         height = int(GUI.get("gui_height", 720))
@@ -227,6 +232,26 @@ class AVCleanerGUI(tk.Tk):
         for page in self._pages.values():
             page.grid(row=0, column=0, sticky="nsew")
 
+        # Action buttons: PROCESS (always visible) | PAUSE/STOP (visible during processing).
+        # Nested in a grid sub-frame so grid_remove() works for show/hide without
+        # disturbing the surrounding pack layout.
+        action_frame = tk.Frame(nav, bg=self._palette["bg"])
+        action_frame.pack(side="left", padx=(0, 10))
+
+        process_btn = self._make_btn(action_frame, "PROCESS", self._run_clicked, kind="primary")
+        process_btn.grid(row=0, column=0, padx=(0, 6), sticky="w")
+
+        pause_btn = self._make_btn(action_frame, "PAUSE", self.pause_processing, kind="secondary")
+        pause_btn.grid(row=0, column=1, padx=(0, 6), sticky="w")
+        pause_btn.grid_remove()  # hidden until processing starts
+
+        stop_btn = self._make_btn(action_frame, "STOP", self.stop_processing, kind="secondary")
+        stop_btn.grid(row=0, column=2, padx=(0, 6), sticky="w")
+        stop_btn.grid_remove()  # hidden until processing starts
+
+        # Register early so _proc_ui_update works from the moment pages are built.
+        self.register_action_buttons(process_btn, pause_btn, stop_btn)
+
         self._nav_main_btn = self._make_btn(nav, "MAIN", lambda: self.show_page("main"), kind="secondary")
         self._nav_main_btn.pack(side="left", padx=(0, 10))
         self._nav_settings_btn = self._make_btn(nav, "SETTINGS", lambda: self.show_page("settings"), kind="secondary")
@@ -285,13 +310,30 @@ class AVCleanerGUI(tk.Tk):
 
         self.destroy()
 
+    def _run_clicked(self) -> None:
+        # Created by coder-sr | 2026-03-14 — moved from MainPage._run_clicked
+        # "PROCESS" requires both files because it performs sync-preserving edits
+        # that must be applied to host + guest together.
+        host_row = self._rows.get("host")
+        guest_row = self._rows.get("guest")
+        host = host_row.path if host_row else None
+        guest = guest_row.path if guest_row else None
+        if not host or not guest:
+            messagebox.showwarning("Missing files", "Select both HOST and GUEST files first.")
+            return
+        self.run_processing(host, guest)
+
     def clear_logs(self) -> None:
         self._log_queue.put("__CLEAR__")
 
+    # Modified by gpt-5.4 | 2026-03-15
     def _gui_line_sanitize(self, text: str) -> str:
         """Remove redundant logging level text from GUI-only display lines."""
 
-        return text.replace(" - INFO - ", " ")
+        sanitized = text.replace(" - INFO - ", " ")
+        sanitized = sanitized.replace("â€”", " ")
+        sanitized = sanitized.replace("—", " ")
+        return sanitized
 
     def append_log(self, text: str) -> None:
         self._log_queue.put(self._gui_line_sanitize(text))
@@ -550,20 +592,22 @@ class AVCleanerGUI(tk.Tk):
                 )
                 assert self._proc.stdout is not None
                 for line in self._proc.stdout:
-                    # Format FFmpeg progress lines to align with header columns
-                    formatted_line, is_progress = format_ffmpeg_progress_line(line)
+                    # Classify each line: FFmpeg render stats vs. regular output.
+                    _formatted, is_progress = format_ffmpeg_progress_line(line)
 
                     if is_progress:
-                        # Only show every other progress line to reduce console spam
-                        if should_show_progress_line(show_every_nth=2):
-                            self.append_progress(formatted_line)
+                        # FFmpeg render-progress lines are dropped from display;
+                        # the right pane is now FILLER WORDS FOUND and only shows
+                        # filler-word output, not render stats.
+                        pass
                     else:
-                        # Pass through non-progress lines as-is
+                        # Pass through all non-FFmpeg lines to the CONSOLE.
                         self.append_log(line)
                         if progress_line_mirror_should(line):
-                            # Transform line for PROGRESS pane (e.g. truncate filler-word detail).
-                            # The original line is preserved for the CONSOLE above.
-                            self.append_progress(progress_line_transform(line))
+                            # Mirror filler-word lines to the FILLER WORDS FOUND pane.
+                            # Routing to HOST/GUEST sub-pane is handled inside
+                            # MainPage.append_progress_view().
+                            self.append_progress(line)
 
                     result_host, result_guest = result_line_paths_parse(line)
                     if result_host and result_guest:

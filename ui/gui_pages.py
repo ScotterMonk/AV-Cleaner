@@ -12,9 +12,7 @@ Design notes:
   (selected files, logs, status) and actions (running processing, saving).
 """
 
-import os
 import tkinter as tk
-from tkinter import messagebox
 
 from ui.gui_output_rows import file_grid_line_color_get
 
@@ -40,69 +38,59 @@ class MainPage(tk.Frame):
     # - Does not run ffmpeg / processing directly; delegates to the app.
     # - Does not own file row state; reads rows from app._rows.
     def __init__(self, parent: tk.Widget, app) -> None:
-        # Modified by gpt-5.2 | 2026-01-18_01
+        # Modified by coder-sr | 2026-03-14 — removed Actions/Controls panes; PROCESS moved to top nav
         super().__init__(parent, bg=app._palette["bg"])
         self._app = app
 
-        # A single grid wrapper makes it easy to allocate fixed-height top panels
-        # (Files + Actions) and give the remaining space to the console.
+        # A single grid wrapper makes it easy to allocate a fixed-height Files
+        # panel (row 0) and give all remaining vertical space to the two
+        # side-by-side panes below (row 1).
         grid = tk.Frame(self, bg=app._palette["bg"])
         grid.pack(fill="both", expand=True)
 
         # Layout strategy:
         # - Row 0: Files panel (fixed height by content)
-        # - Row 1: Two columns. Each column stacks:
-        #     - Left: Actions (fixed) + Console (expand)
-        #     - Right: Controls (fixed) + Progress (expand)
+        # - Row 1: Console (left) | Filler Words Found (right) — both fill
+        #          full height starting immediately below Files.
         grid.grid_rowconfigure(0, weight=0)
         grid.grid_rowconfigure(1, weight=1)
         grid.grid_columnconfigure(0, weight=1)
 
         # Files
         # -----
-        # Two-row table where each row represents an input role:
-        # - host
-        # - guest
+        # Two-row table where each row represents an input role: host / guest.
         files_panel = app._make_panel(grid, "Files")
         files_panel.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, panel_external_padding_y))
         self._build_files(files_panel.body)
 
-        # Row 1: Two columns; each column stacks a fixed-height top panel and
-        # an expandable bottom panel.
+        # Row 1: Two equal-height columns filling all remaining space.
         row1 = tk.Frame(grid, bg=app._palette["bg"])
         row1.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
         row1.grid_rowconfigure(0, weight=1)
-        row1.grid_columnconfigure(0, weight=1)
-        row1.grid_columnconfigure(1, weight=1)
+        # Column weights come from config (pane_console_width_pct /
+        # pane_filler_words_found_pct). The ratio of the two values drives the
+        # proportional split; they should sum to 100 but any positive pair works.
+        row1.grid_columnconfigure(0, weight=app._pane_console_width_pct)
+        row1.grid_columnconfigure(1, weight=app._pane_filler_words_found_pct)
 
-        # Left column: Actions (top) + Console (bottom)
+        # Left column: Console fills the full height
         left_col = tk.Frame(row1, bg=app._palette["bg"])
         left_col.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
-        left_col.grid_rowconfigure(0, weight=0)
-        left_col.grid_rowconfigure(1, weight=1)
+        left_col.grid_rowconfigure(0, weight=1)
         left_col.grid_columnconfigure(0, weight=1)
 
-        actions_panel = app._make_panel(left_col, "Actions")
-        actions_panel.grid(row=0, column=0, sticky="nsew", pady=(0, panel_external_padding_y))
-        self._build_actions(actions_panel.body)
-
         console_panel = app._make_panel(left_col, "Console")
-        console_panel.grid(row=1, column=0, sticky="nsew")
+        console_panel.grid(row=0, column=0, sticky="nsew")
         self._build_logs(console_panel.body)
 
-        # Right column: Controls (top) + Progress (bottom)
+        # Right column: Filler Words Found fills the full height
         right_col = tk.Frame(row1, bg=app._palette["bg"])
         right_col.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
-        right_col.grid_rowconfigure(0, weight=0)
-        right_col.grid_rowconfigure(1, weight=1)
+        right_col.grid_rowconfigure(0, weight=1)
         right_col.grid_columnconfigure(0, weight=1)
 
-        controls_panel = app._make_panel(right_col, "Controls")
-        controls_panel.grid(row=0, column=0, sticky="nsew", pady=(0, panel_external_padding_y))
-        self._build_controls(controls_panel.body)
-
-        progress_panel = app._make_panel(right_col, "Progress")
-        progress_panel.grid(row=1, column=0, sticky="nsew")
+        progress_panel = app._make_panel(right_col, "Filler Words Found")
+        progress_panel.grid(row=0, column=0, sticky="nsew")
         self._build_progress(progress_panel.body)
 
     def _build_files(self, parent: tk.Frame) -> None:
@@ -206,40 +194,6 @@ class MainPage(tk.Frame):
         app._create_output_row(grid, row_index=1, role="host", label_text="HOST")
         app._create_output_row(grid, row_index=2, role="guest", label_text="GUEST")
 
-    def _build_controls(self, parent: tk.Frame) -> None:
-        # Modified by gpt-5.4 | 2026-03-07
-        # Intentionally leave the panel body empty so only the CONTROLS title remains visible.
-        return None
-
-    def _build_actions(self, parent: tk.Frame) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
-        # Modified by Claude-4.5-Sonnet | 2026-01-08_08
-        # Modified by Claude-Sonnet-4.6 | 2026-03-11 — added PAUSE and STOP
-        app = self._app
-
-        # Use grid inside the button row so PAUSE/STOP can be shown/hidden via
-        # grid_remove() without disrupting the position of adjacent buttons.
-        row = tk.Frame(parent, bg=app._palette["panel"])
-        row.pack(fill="x")
-
-        # Column map: 0=PROCESS, 1=PAUSE, 2=STOP, 3=OPEN OUT
-        process_btn = app._make_btn(row, "PROCESS", self._run_clicked, kind="primary")
-        process_btn.grid(row=0, column=0, padx=(0, 6), sticky="w")
-
-        pause_btn = app._make_btn(row, "PAUSE", self._pause_clicked, kind="secondary")
-        pause_btn.grid(row=0, column=1, padx=(0, 6), sticky="w")
-        pause_btn.grid_remove()  # hidden until processing starts
-
-        stop_btn = app._make_btn(row, "STOP", self._stop_clicked, kind="secondary")
-        stop_btn.grid(row=0, column=2, padx=(0, 6), sticky="w")
-        stop_btn.grid_remove()  # hidden until processing starts
-
-        open_btn = app._make_btn(row, "OPEN OUT", self._open_output_clicked, kind="secondary")
-        open_btn.grid(row=0, column=3, padx=(0, 0), sticky="w")
-
-        # Register all three with the app so it can update their state
-        app.register_action_buttons(process_btn, pause_btn, stop_btn)
-
     def _build_logs(self, parent: tk.Frame) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
         # Modified by Claude-4.5-Sonnet | 2026-01-08_11
@@ -271,6 +225,7 @@ class MainPage(tk.Frame):
             padx=0,
             pady=0,
             height=1,
+            width=1,  # suppress default 80-char minimum; grid weight controls width
             wrap="none",
             cursor="arrow",
         )
@@ -318,6 +273,7 @@ class MainPage(tk.Frame):
             bd=0,
             padx=16,
             pady=10,
+            width=1,  # suppress default 80-char minimum; grid weight controls width
             wrap="word",
             yscrollcommand=scrollbar.set,
         )
@@ -331,19 +287,74 @@ class MainPage(tk.Frame):
         self._log_text.configure(state="disabled")
 
     def _build_progress(self, parent: tk.Frame) -> None:
-        # Created by gpt-5.2 | 2026-01-15_01
+        # Modified by coder-sr | 2026-03-14 — retasked as two-column FILLER WORDS FOUND pane
         app = self._app
 
-        # Outer wrapper adds an "edge" so the progress reads as a distinct surface.
-        wrap = tk.Frame(parent, bg=app._palette["panel"], highlightthickness=2, highlightbackground=app._palette["edge2"])
+        # State: tracks last explicitly labelled host/guest header so subsequent
+        # indented per-word lines (which have no track marker) route correctly.
+        self._filler_current_track: str | None = None
+
+        # Outer wrapper adds a distinct surface edge.
+        wrap = tk.Frame(
+            parent,
+            bg=app._palette["panel"],
+            highlightthickness=2,
+            highlightbackground=app._palette["edge2"],
+        )
         wrap.pack(fill="both", expand=True)
 
-        # Progress area (scrolling pane).
-        self._progress_area = tk.Frame(wrap, bg=app._palette["panel"])
-        self._progress_area.pack(side="top", fill="both", expand=True)
+        # Two-column grid: HOST (col 0) | thin divider (col 1) | GUEST (col 2)
+        grid = tk.Frame(wrap, bg=app._palette["panel"])
+        grid.pack(fill="both", expand=True)
+        grid.columnconfigure(0, weight=1)
+        grid.columnconfigure(1, weight=0)  # divider — fixed 1 px wide
+        grid.columnconfigure(2, weight=1)
+        grid.rowconfigure(0, weight=0)     # sub-pane labels
+        grid.rowconfigure(1, weight=1)     # text areas
+
+        # Sub-pane label — HOST
+        tk.Label(
+            grid,
+            text="HOST",
+            font=app._mono(weight="bold"),
+            bg=app._palette["panel2"],
+            fg=app._ui_colors["accent_font"],
+            anchor="w",
+            padx=8,
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 2))
+
+        # Vertical divider between HOST and GUEST
+        tk.Frame(grid, bg=app._palette["edge2"], width=1).grid(
+            row=0, column=1, rowspan=2, sticky="ns", padx=4
+        )
+
+        # Sub-pane label — GUEST
+        tk.Label(
+            grid,
+            text="GUEST",
+            font=app._mono(weight="bold"),
+            bg=app._palette["panel2"],
+            fg=app._ui_colors["accent_font"],
+            anchor="w",
+            padx=8,
+        ).grid(row=0, column=2, sticky="ew", pady=(0, 2))
+
+        # Text areas
+        host_frame = tk.Frame(grid, bg=app._palette["panel"])
+        host_frame.grid(row=1, column=0, sticky="nsew")
+        self._filler_host_text = self._build_filler_subpane(host_frame)
+
+        guest_frame = tk.Frame(grid, bg=app._palette["panel"])
+        guest_frame.grid(row=1, column=2, sticky="nsew")
+        self._filler_guest_text = self._build_filler_subpane(guest_frame)
+
+    def _build_filler_subpane(self, parent: tk.Frame) -> tk.Text:
+        """Build a scrollable read-only text area inside *parent*; return the Text widget."""
+        # Created by coder-sr | 2026-03-14
+        app = self._app
 
         scrollbar = tk.Scrollbar(
-            self._progress_area,
+            parent,
             bg="#555555",
             troughcolor="#2A2A2A",
             activebackground="#777777",
@@ -354,25 +365,27 @@ class MainPage(tk.Frame):
         )
         scrollbar.pack(side="right", fill="y")
 
-        self._progress_text = tk.Text(
-            self._progress_area,
+        txt = tk.Text(
+            parent,
             bg=app._palette["panel2"],
             fg=app._palette["text"],
             insertbackground=app._ui_colors["accent_line"],
             font=app._mono(),
             relief="flat",
             bd=0,
-            padx=16,
+            padx=8,
             pady=10,
+            width=1,  # suppress default 80-char minimum; grid weight controls width
             wrap="word",
             yscrollcommand=scrollbar.set,
         )
-        self._progress_text.pack(side="left", fill="both", expand=True)
-        self._enable_text_copy_shortcuts(self._progress_text)
-        scrollbar.config(command=self._progress_text.yview)
+        txt.pack(side="left", fill="both", expand=True)
+        self._enable_text_copy_shortcuts(txt)
+        scrollbar.config(command=txt.yview)
 
-        self._progress_text.insert("end", "High level progress output will appear here.\n")
-        self._progress_text.configure(state="disabled")
+        txt.insert("end", "Filler word output will appear here.\n")
+        txt.configure(state="disabled")
+        return txt
 
     def _enable_text_copy_shortcuts(self, widget: tk.Text) -> None:
         # Created by gpt-5.2 | 2026-01-18_02
@@ -411,10 +424,12 @@ class MainPage(tk.Frame):
         self._log_text.configure(state="disabled")
 
     def clear_progress_view(self) -> None:
-        # Created by gpt-5.2 | 2026-01-15_01
-        self._progress_text.configure(state="normal")
-        self._progress_text.delete("1.0", "end")
-        self._progress_text.configure(state="disabled")
+        # Modified by coder-sr | 2026-03-14 — clears both HOST and GUEST sub-panes
+        self._filler_current_track = None
+        for txt in (self._filler_host_text, self._filler_guest_text):
+            txt.configure(state="normal")
+            txt.delete("1.0", "end")
+            txt.configure(state="disabled")
 
     def append_log_view(self, text: str) -> None:
         # Modified by gpt-5.2 | 2026-01-12_01
@@ -425,42 +440,37 @@ class MainPage(tk.Frame):
         self._log_text.configure(state="disabled")
 
     def append_progress_view(self, text: str) -> None:
-        # Created by gpt-5.2 | 2026-01-15_01
-        self._progress_text.configure(state="normal")
-        self._progress_text.insert("end", text)
-        self._progress_text.see("end")
-        self._progress_text.configure(state="disabled")
+        # Modified by coder-sr | 2026-03-14 — routes filler-word lines to HOST or GUEST sub-pane
+        from ui.gui_process_helpers import filler_line_is_filler, filler_line_track_hint
 
-    def _open_output_clicked(self) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
-        # Best-effort: open project folder; output files are next to inputs.
-        # Windows-only convenience: os.startfile opens Explorer at the folder.
-        try:
-            os.startfile(str(self._app._project_dir))
-        except Exception:
-            # If we can't open a folder (permissions, invalid path), ignore.
-            pass
-
-    def _run_clicked(self) -> None:
-        # Modified by gpt-5.2 | 2026-01-12_01
-        # "PROCESS" requires both files because it performs sync-preserving edits
-        # that must be applied to host + guest together.
-        host_row = self._app._rows.get("host")
-        guest_row = self._app._rows.get("guest")
-        host = host_row.path if host_row else None
-        guest = guest_row.path if guest_row else None
-        if not host or not guest:
-            messagebox.showwarning("Missing files", "Select both HOST and GUEST files first.")
+        # Only display filler-word related lines; silently drop everything else.
+        if not filler_line_is_filler(text):
             return
-        self._app.run_processing(host, guest)
 
-    # Created by Claude-Sonnet-4.6 | 2026-03-11
-    def _pause_clicked(self) -> None:
-        """Toggle pause/resume on the active processing job."""
-        self._app.pause_processing()
+        hint = filler_line_track_hint(text)
+        if hint == "context":
+            # Indented per-word line — route using the last seen explicit track.
+            # Fall back to "both" if state is unknown (e.g. first run, cleared).
+            track = self._filler_current_track or "both"
+        else:
+            track = hint
+            # Keep state current so following per-word lines route correctly.
+            if hint in ("host", "guest"):
+                self._filler_current_track = hint
 
-    # Created by Claude-Sonnet-4.6 | 2026-03-11
-    def _stop_clicked(self) -> None:
-        """Kill the active processing job."""
-        self._app.stop_processing()
+        if track in ("host", "both"):
+            self._filler_text_append(self._filler_host_text, text)
+        if track in ("guest", "both"):
+            self._filler_text_append(self._filler_guest_text, text)
+
+    def _filler_text_append(self, widget: tk.Text, text: str) -> None:
+        """Append *text* to a filler sub-pane, ensuring it ends with a newline."""
+        # Created by coder-sr | 2026-03-14
+        widget.configure(state="normal")
+        if not text.endswith("\n"):
+            text = text + "\n"
+        widget.insert("end", text)
+        widget.see("end")
+        widget.configure(state="disabled")
+
 
