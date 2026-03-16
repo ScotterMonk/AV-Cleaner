@@ -41,25 +41,25 @@ class TestMergeCloseSegments:
     # ── Merge behaviour ───────────────────────────────────────────────────────
 
     def test_gap_below_threshold_is_merged(self):
-        """60 ms gap < 80 ms threshold → single merged segment."""
+        """60 ms gap < 80 ms threshold -> single merged segment."""
         segs = [(10.0, 12.5), (12.56, 15.0)]  # 60 ms gap
         result = merge_close_segments(segs, gap_threshold_s=0.080)
         assert result == [(10.0, 15.0)]
 
     def test_gap_exactly_at_threshold_is_not_merged(self):
-        """Gap == threshold is NOT strictly below → keep as two segments."""
+        """Gap == threshold is NOT strictly below -> keep as two segments."""
         segs = [(0.0, 1.0), (1.080, 2.0)]  # gap == 80 ms
         result = merge_close_segments(segs, gap_threshold_s=0.080)
         assert result == [(0.0, 1.0), (1.080, 2.0)]
 
     def test_gap_above_threshold_is_not_merged(self):
-        """200 ms gap > 80 ms threshold → kept as separate segments."""
+        """200 ms gap > 80 ms threshold -> kept as separate segments."""
         segs = [(0.0, 1.0), (1.2, 2.0)]  # 200 ms gap
         result = merge_close_segments(segs, gap_threshold_s=0.080)
         assert result == [(0.0, 1.0), (1.2, 2.0)]
 
     def test_gap_just_below_threshold_is_merged(self):
-        """79 ms gap is strictly below 80 ms → merged."""
+        """79 ms gap is strictly below 80 ms -> merged."""
         segs = [(0.0, 1.0), (1.079, 2.0)]  # 79 ms gap
         result = merge_close_segments(segs, gap_threshold_s=0.080)
         assert result == [(0.0, 2.0)]
@@ -67,7 +67,7 @@ class TestMergeCloseSegments:
     # ── Multi-segment chains ──────────────────────────────────────────────────
 
     def test_chain_of_three_all_micro_gaps_merged_into_one(self):
-        """Three segments with sub-threshold gaps → one merged segment."""
+        """Three segments with sub-threshold gaps -> one merged segment."""
         segs = [(0.0, 1.0), (1.05, 2.0), (2.06, 3.0)]  # 50 ms, 60 ms gaps
         result = merge_close_segments(segs, gap_threshold_s=0.080)
         assert result == [(0.0, 3.0)]
@@ -75,28 +75,28 @@ class TestMergeCloseSegments:
     def test_alternating_micro_and_macro_gaps(self):
         """Only sub-threshold gaps merged; large gaps preserved."""
         segs = [
-            (0.0, 1.0),   # ← 60 ms gap (merge) →
-            (1.06, 2.0),  # ← 500 ms gap (keep) →
-            (2.5, 3.5),   # ← 70 ms gap (merge) →
+            (0.0, 1.0),   # ← 60 ms gap (merge) ->
+            (1.06, 2.0),  # ← 500 ms gap (keep) ->
+            (2.5, 3.5),   # ← 70 ms gap (merge) ->
             (3.57, 4.5),
         ]
         result = merge_close_segments(segs, gap_threshold_s=0.080)
         assert result == [(0.0, 2.0), (2.5, 4.5)]
 
     def test_five_segments_two_micro_gaps(self):
-        """Realistic scenario: 5 segments, 2 micro-gaps → 3 segments."""
+        """Realistic scenario: 5 segments, 2 micro-gaps -> 3 segments."""
         segs = [
             (0.0, 5.0),
-            (5.05, 10.0),   # 50 ms → merge
-            (11.0, 15.0),   # 1 s → keep
-            (16.0, 20.0),   # 1 s → keep
-            (20.06, 25.0),  # 60 ms → merge
+            (5.05, 10.0),   # 50 ms -> merge
+            (11.0, 15.0),   # 1 s -> keep
+            (16.0, 20.0),   # 1 s -> keep
+            (20.06, 25.0),  # 60 ms -> merge
         ]
         result = merge_close_segments(segs, gap_threshold_s=0.080)
         assert result == [(0.0, 10.0), (11.0, 15.0), (16.0, 25.0)]
 
     def test_all_gaps_above_threshold_no_merges(self):
-        """No micro-gaps → output identical to input."""
+        """No micro-gaps -> output identical to input."""
         segs = [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)]
         result = merge_close_segments(segs, gap_threshold_s=0.080)
         assert result == [(0.0, 1.0), (2.0, 3.0), (4.0, 5.0)]
@@ -109,20 +109,20 @@ class TestMergeCloseSegments:
 
     def test_uses_default_threshold_when_omitted(self):
         """Calling without explicit gap_threshold_s uses the 150 ms default."""
-        segs = [(0.0, 1.0), (1.079, 2.0)]  # 79 ms gap < 150 ms default → merged
+        segs = [(0.0, 1.0), (1.079, 2.0)]  # 79 ms gap < 150 ms default -> merged
         result = merge_close_segments(segs)
         assert result == [(0.0, 2.0)]
 
     def test_default_threshold_does_not_merge_151ms_gap(self):
-        """Gap above 150 ms is NOT strictly below threshold → kept separate."""
-        segs = [(0.0, 1.0), (1.151, 2.0)]  # 151 ms gap > 150 ms threshold → not merged
+        """Gap above 150 ms is NOT strictly below threshold -> kept separate."""
+        segs = [(0.0, 1.0), (1.151, 2.0)]  # 151 ms gap > 150 ms threshold -> not merged
         result = merge_close_segments(segs)
         assert result == [(0.0, 1.0), (1.151, 2.0)]
 
     # ── Custom threshold override ─────────────────────────────────────────────
 
     def test_zero_threshold_never_merges(self):
-        """gap_threshold_s=0 means no gap is below the threshold → no merges."""
+        """gap_threshold_s=0 means no gap is below the threshold -> no merges."""
         segs = [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)]  # touching segments
         result = merge_close_segments(segs, gap_threshold_s=0.0)
         assert result == [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)]
@@ -155,7 +155,7 @@ class TestMergeCloseSegmentsAdaptive:
 
     def test_low_count_uses_base_threshold_only(self):
         """When merged count stays below high_count, no adaptive pass runs."""
-        # 5 segments with 200 ms gaps — well above 150 ms base → not merged
+        # 5 segments with 200 ms gaps — well above 150 ms base -> not merged
         segs = [(float(i), float(i) + 0.5) for i in range(0, 10, 2)]  # 5 segments
         result = merge_close_segments_adaptive(
             segs,
@@ -163,12 +163,12 @@ class TestMergeCloseSegmentsAdaptive:
             high_count=150,
             target_count=100,
         )
-        # 200 ms gaps are above 150 ms base threshold → no merges
+        # 200 ms gaps are above 150 ms base threshold -> no merges
         assert result == segs
 
     def test_low_count_with_micro_gaps_merged_by_base(self):
         """Sub-threshold gaps merged in the base pass; adaptive not triggered."""
-        # 3 segments with 100 ms gaps (< 150 ms base) → merged to 1
+        # 3 segments with 100 ms gaps (< 150 ms base) -> merged to 1
         segs = [(0.0, 1.0), (1.10, 2.0), (2.10, 3.0)]
         result = merge_close_segments_adaptive(
             segs,
@@ -199,7 +199,7 @@ class TestMergeCloseSegmentsAdaptive:
             max_threshold_s=0.300,
             step_s=0.010,
         )
-        # At 210 ms threshold the 200 ms gaps merge → all 160 collapse into 1
+        # At 210 ms threshold the 200 ms gaps merge -> all 160 collapse into 1
         assert len(result) < 150
 
     def test_adaptive_stops_at_target(self):
@@ -228,7 +228,7 @@ class TestMergeCloseSegmentsAdaptive:
             max_threshold_s=0.300,
             step_s=0.010,
         )
-        # 500 ms gaps are > 300 ms ceiling → no merges occur; count unchanged
+        # 500 ms gaps are > 300 ms ceiling -> no merges occur; count unchanged
         assert len(result) == 160
 
     def test_adaptive_does_not_mutate_input(self):

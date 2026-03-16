@@ -18,6 +18,7 @@ config.*
 activate.ps1
 
 # Misc
+logs_processing/
 notes/
 temp/
 temp_audio/

@@ -7,20 +7,11 @@
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.dirname(__file__))
 
 
-# Silence the processing-complete chime for every test automatically.
-# The alert is a GUI side effect; tests that exercise run_processing() should
-# not trigger audio any more than they trigger real subprocesses or real file I/O.
-# This is the same pattern as monkeypatching subprocess.Popen etc. in those tests —
-# but done session-wide so no individual test has to remember to do it.
-@pytest.fixture(autouse=True)
-def _silence_processing_alert(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Created by anthropic/claude-sonnet-4.6 | 2026-03-14
-    monkeypatch.setattr(
-        "utils.processing_alert.processing_complete_alert_play",
-        lambda: None,
-    )
+# NOTE: processing-complete chime suppression is handled inside
+# processing_complete_alert_play() itself via PYTEST_CURRENT_TEST env-var
+# guard (utils/processing_alert.py).  A prior monkeypatch approach here kept
+# regressing because gui_app.py imports the function directly — the patch
+# swapped the module attribute but gui_app already held the real reference.

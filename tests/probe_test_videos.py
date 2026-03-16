@@ -29,7 +29,7 @@ if host_duration is not None and guest_duration is not None:
     
     if diff < 0.1:
         print("✓ Durations MATCH (difference < 0.1s)")
-        print("  → Preflight logging will NOT trigger with these videos")
+        print("  -> Preflight logging will NOT trigger with these videos")
     else:
         print(f"✓ Durations MISMATCH (difference = {diff:.2f}s)")
-        print("  → Preflight logging WILL trigger with these videos")
+        print("  -> Preflight logging WILL trigger with these videos")

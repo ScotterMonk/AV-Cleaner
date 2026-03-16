@@ -293,14 +293,14 @@ class TestFillerWordDetectorConfidenceGating:
 
     def test_host_word_below_threshold_skipped(self):
         # config: confidence_required_host=1.08, bonus_per_word=0.10
-        # effective_required = 1.08 - (1 * 0.10) = 0.98; 0.97 < 0.98 → skipped
+        # effective_required = 1.08 - (1 * 0.10) = 0.98; 0.97 < 0.98 -> skipped
         det = self._detector()
         result = det._filter_by_confidence([self._match("host", 0.97)], "host")
         assert len(result) == 1
         assert result[0]["action"] == "skipped"
 
     def test_guest_word_at_threshold_muted(self):
-        # config.py: confidence_required_guest = 0.92; 0.92 >= 0.92 → muted
+        # config.py: confidence_required_guest = 0.92; 0.92 >= 0.92 -> muted
         det = self._detector()
         result = det._filter_by_confidence([self._match("guest", 0.92)], "guest")
         assert len(result) == 1
@@ -308,7 +308,7 @@ class TestFillerWordDetectorConfidenceGating:
 
     def test_guest_word_below_threshold_skipped(self):
         # config: confidence_required_guest=0.95, bonus_per_word=0.10
-        # effective_required = 0.95 - (1 * 0.10) = 0.85; 0.84 < 0.85 → skipped
+        # effective_required = 0.95 - (1 * 0.10) = 0.85; 0.84 < 0.85 -> skipped
         det = self._detector()
         result = det._filter_by_confidence([self._match("guest", 0.84)], "guest")
         assert len(result) == 1
@@ -602,7 +602,7 @@ class TestWordMuterSlurInset:
         assert manifest.host_filters[0].params["enable"] == "between(t,2.000,2.300)"
 
     def test_end_inset_when_next_gap_small(self):
-        """next_gap_ms below threshold → end shrinks inward by inset_ms."""
+        """next_gap_ms below threshold -> end shrinks inward by inset_ms."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
         from config import WORDS_TO_REMOVE
@@ -616,7 +616,7 @@ class TestWordMuterSlurInset:
         assert manifest.host_filters[0].params["enable"] == expected
 
     def test_start_inset_when_prev_gap_small(self):
-        """prev_gap_ms below threshold → start shrinks inward by inset_ms."""
+        """prev_gap_ms below threshold -> start shrinks inward by inset_ms."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
         from config import WORDS_TO_REMOVE
@@ -630,7 +630,7 @@ class TestWordMuterSlurInset:
         assert manifest.host_filters[0].params["enable"] == expected
 
     def test_no_inset_when_gaps_large(self):
-        """Gaps larger than threshold → no inset; timestamps unchanged."""
+        """Gaps larger than threshold -> no inset; timestamps unchanged."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
         processor = WordMuter({})
@@ -641,7 +641,7 @@ class TestWordMuterSlurInset:
         assert manifest.host_filters[0].params["enable"] == "between(t,2.000,2.300)"
 
     def test_both_sides_inset_when_both_gaps_small(self):
-        """Both neighbours slurred → both start and end are inset."""
+        """Both neighbours slurred -> both start and end are inset."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
         from config import WORDS_TO_REMOVE

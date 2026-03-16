@@ -78,13 +78,22 @@ def filler_line_track_hint(line: str) -> str:
 
 
 # Created by gpt-5.4 | 2026-03-07
+# Modified by coder-sr | 2026-03-16 — find [RESULT] anywhere in line (logger prepends timestamp + level)
 def result_line_paths_parse(line: str) -> tuple[str | None, str | None]:
-    """Extract host and guest output paths from a [RESULT] line."""
+    """Extract host and guest output paths from a [RESULT] line.
 
-    if not line.startswith("[RESULT]"):
+    The logger emits lines like ``HH:MM:SS - INFO - [RESULT] host=... guest=...``
+    so the token is NOT at position 0.  We search for the token anywhere in the
+    line and parse from that offset.
+    """
+    idx = line.find("[RESULT]")
+    if idx == -1:
         return None, None
 
-    match = re.search(r"host=(.+?)\s+guest=(.+)$", line.strip())
+    # Slice from the [RESULT] token onward so the regex anchors correctly.
+    payload = line[idx:].strip()
+
+    match = re.search(r"host=(.+?)\s+guest=(.+)$", payload)
     if match is None:
         return None, None
 

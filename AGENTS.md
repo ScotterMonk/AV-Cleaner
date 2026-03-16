@@ -1,16 +1,28 @@
 # AGENTS.md
 
 ## Environment & Shell
-**Context**: Windows 11, VS Code, PowerShell Core (`pwsh`).
+- **Context**: Windows 11, VS Code, PowerShell Core (`pwsh`).
 - **Base folder**: `d:/Dropbox/Projects/AV-cleaner/app/`.
     - **Rule**: Always use forward slashes `/` in paths to avoid escaping errors.
 - **Terminal**: **STRICTLY PowerShell**. Do not use `cmd.exe`, `bash`, or `wsl`.
 - **Syntax Rules**:
-  - **Never use Linux commands in terminal**.
   - **Chaining**: Use `;` (sequential) or `&&` (conditional).
   - **Variables**: Use `$env:VAR = 'val'` (not `export` or `set`).
   - **Replacements**: Use `Select-String` (not `grep`), `Get-Content` (not `cat`), `New-Item` (not `touch`), `Remove-Item` (not `rm`).
+   - **NO terminal line feeds**: 
+      - **No:**:
+         ```
+         python -c "
+         print('stuff')
+         print('more')
+         "
+         ```
+      - **Yes:**:
+         ```
+         python -c "print('stuff'); print('more')"
+         ```
 - **Prohibited**: `tail`, `sed`, `awk`, `sudo`, and `cmd.exe` flags (like `/d`).
+
 
 ## Run Commands
 - Start app: `python app.py` # launches the GUI. Do not test to see if it worked.

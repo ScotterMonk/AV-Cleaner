@@ -23,7 +23,7 @@ audio = audio_extractor.extract_audio(GUEST_VIDEO)
 fd, tmp = tempfile.mkstemp(suffix="_diag.mp3")
 os.close(fd)
 audio.export(tmp, format="mp3")
-print(f"Exported → {tmp}")
+print(f"Exported -> {tmp}")
 
 print("Uploading…")
 with open(tmp, "rb") as f:

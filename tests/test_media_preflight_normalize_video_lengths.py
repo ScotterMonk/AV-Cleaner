@@ -47,7 +47,7 @@ def test_normalize_video_lengths_returns_inputs_when_within_tolerance(monkeypatc
 def test_normalize_video_lengths_normalizes_when_outside_tolerance(monkeypatch):
     """When guest is longer, only the host (shorter) video is padded.
 
-    guest=10.02 > host=10.0 → host needs padding.
+    guest=10.02 > host=10.0 -> host needs padding.
     Expected: host_out = _preflight path, guest_out = original guest path.
     Only one call to _video_pad_efficient (for the shorter video).
     """
@@ -81,7 +81,7 @@ def test_normalize_video_lengths_normalizes_when_outside_tolerance(monkeypatch):
 def test_normalize_video_lengths_mismatch_pads_shorter_only(monkeypatch):
     """When host is longer, only the guest (shorter) video is padded.
 
-    host=10.0 > guest=8.0 → guest needs padding.
+    host=10.0 > guest=8.0 -> guest needs padding.
     Expected: guest_out = _preflight path, host_out = original host path.
     Only one call to _video_pad_efficient (for the shorter video).
     Completion log messages are emitted.

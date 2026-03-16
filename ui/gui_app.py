@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -327,12 +328,17 @@ class AVCleanerGUI(tk.Tk):
         self._log_queue.put("__CLEAR__")
 
     # Modified by gpt-5.4 | 2026-03-15
+    # Modified by coder-sr | 2026-03-15 — strip [DETAIL] tag from display
     def _gui_line_sanitize(self, text: str) -> str:
         """Remove redundant logging level text from GUI-only display lines."""
 
         sanitized = text.replace(" - INFO - ", " ")
-        sanitized = sanitized.replace("â€”", " ")
+        sanitized = sanitized.replace("\u00e2\u20ac\u201d", " ")  # mojibake em-dash (UTF-8 bytes misread as cp1252)
         sanitized = sanitized.replace("—", " ")
+        # Strip [DETAIL] tag and any immediately-following whitespace so that
+        # e.g. "15:16:02 [DETAIL]   00:13:26 "um"..." becomes
+        #      "15:16:02 00:13:26 "um"..."
+        sanitized = re.sub(r"\[DETAIL\]\s*", "", sanitized)
         return sanitized
 
     def append_log(self, text: str) -> None:

@@ -109,7 +109,7 @@ class WordMuter(BaseProcessor):
         start_s = float(detail["start_sec"])
         end_s = float(detail["end_sec"])
 
-        # Read inset config (ms → seconds).
+        # Read inset config (ms -> seconds).
         inset_ms = float(WORDS_TO_REMOVE.get("filler_mute_inset_ms", 30))
         threshold_ms = float(WORDS_TO_REMOVE.get("filler_mute_gap_threshold_ms", 60))
         inset_s = inset_ms / 1000.0
@@ -121,7 +121,7 @@ class WordMuter(BaseProcessor):
         if prev_gap_ms is not None and prev_gap_ms < threshold_ms:
             start_s += inset_s
             logger.debug(
-                "[WordMuter] Slurred start: prev_gap=%.0fms < %.0fms → inset start +%.0fms",
+                "[WordMuter] Slurred start: prev_gap=%.0fms < %.0fms -> inset start +%.0fms",
                 prev_gap_ms, threshold_ms, inset_ms,
             )
 
@@ -129,7 +129,7 @@ class WordMuter(BaseProcessor):
         if next_gap_ms is not None and next_gap_ms < threshold_ms:
             end_s -= inset_s
             logger.debug(
-                "[WordMuter] Slurred end: next_gap=%.0fms < %.0fms → inset end -%.0fms",
+                "[WordMuter] Slurred end: next_gap=%.0fms < %.0fms -> inset end -%.0fms",
                 next_gap_ms, threshold_ms, inset_ms,
             )
 

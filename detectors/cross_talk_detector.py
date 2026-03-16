@@ -29,9 +29,9 @@ class CrossTalkDetector(BaseDetector):
           - Returned: 0.5 to 5.0 (4.5s to remove, keeps 0.5s replacement pause)
         
         Handles edge cases:
-        - Cross-talk: One speaks while other listens → KEEP
-        - Turn-taking: Natural back-and-forth → KEEP
-        - True pause: Both silent > max_pause_duration → REMOVE EXCESS
+        - Cross-talk: One speaks while other listens -> KEEP
+        - Turn-taking: Natural back-and-forth -> KEEP
+        - True pause: Both silent > max_pause_duration -> REMOVE EXCESS
         """
         from utils.logger import format_time_cut, get_logger
         logger = get_logger(__name__)

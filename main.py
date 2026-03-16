@@ -29,6 +29,11 @@ from processors.word_muter import WordMuter
 from config import QUALITY_PRESETS, PIPELINE_CONFIG
 from utils.logger import format_duration, format_time_cut, setup_logger
 
+# Tracks the single active ProgressLogHandler added by _run_process.
+# Stored here so it can be removed on the next call without needing isinstance()
+# (which breaks when the class is mocked in tests).
+_active_progress_handler: logging.Handler | None = None
+
 
 _PROCESSOR_REGISTRY = {
     "SegmentRemover": SegmentRemover,
@@ -114,12 +119,20 @@ def _run_process(host: str, guest: str, norm_mode: str | None, action: str | Non
     # Initialize logger with progress log handler
     logger = setup_logger()
     
-    # Add progress log handler to capture all PROGRESS pane lines
+    # Add progress log handler to capture all PROGRESS pane lines.
+    # _run_process may be called multiple times in the same process (e.g. GUI
+    # re-runs). addHandler() never deduplicates, so we track the previous
+    # handler by reference and remove it before registering a new one.
+    global _active_progress_handler
     project_dir = Path(host).resolve().parent
-    log_path = progress_log_path(project_dir)
+    log_path = progress_log_path(project_dir / "logs_processing")
+    vt_logger = logging.getLogger("video_trimmer")
+    if _active_progress_handler is not None:
+        vt_logger.removeHandler(_active_progress_handler)
     progress_handler = ProgressLogHandler(log_path)
     progress_handler.setFormatter(logging.Formatter("%(message)s"))
-    logging.getLogger("video_trimmer").addHandler(progress_handler)
+    vt_logger.addHandler(progress_handler)
+    _active_progress_handler = progress_handler
     
     run_start_time = time.time()
     logger.info("[RUN START] FULL_PIPELINE")

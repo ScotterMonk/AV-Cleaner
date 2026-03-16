@@ -88,6 +88,9 @@ def test_settings_page_save_writes_filler_word_mute_fields(monkeypatch, tmp_path
             "ui_button_caption_color": "#39FF14",
             "ui_accent_font_color": "#39FF14",
             "ui_accent_line_color": "#39FF14",
+            # Pane-width fields added 2026-03-15
+            "pane_console_width_pct": 55,
+            "pane_filler_words_found_pct": 45,
         },
         {"processors": []},
         {"PODCAST_HIGH_QUALITY": {"nvenc": {}, "normalization": {}}},

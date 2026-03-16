@@ -363,7 +363,7 @@ class FillerWordDetector(BaseDetector):
             # Every word in the phrase earns a bonus that lowers the threshold.
             effective_required = required - (word_count * bonus_per_word)
             logger.debug(
-                "[FillerWordDetector] %s | %r: %d word(s), threshold %.2f → %.2f (conf=%.2f)",
+                "[FillerWordDetector] %s | %r: %d word(s), threshold %.2f -> %.2f (conf=%.2f)",
                 track, phrase, word_count, required, effective_required, conf,
             )
             if conf >= effective_required:

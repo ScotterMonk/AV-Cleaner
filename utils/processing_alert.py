@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import math
+import os
 import struct
 import wave
 from pathlib import Path
@@ -14,7 +15,7 @@ any standard WAV to customise the completion sound.
 """
 
 # Persistent chime file path — resolved relative to project root
-# (this file lives at utils/processing_alert.py → parent.parent = project root).
+# (this file lives at utils/processing_alert.py -> parent.parent = project root).
 _CHIME_PATH = Path(__file__).resolve().parent.parent / "assets" / "alert_chime.wav"
 
 
@@ -22,7 +23,7 @@ def _build_chime_wav() -> bytes:
     """Generate a 3-tone ascending chime as in-memory WAV bytes.
 
     Uses only stdlib (wave, struct, math) — no external packages required.
-    Tones mirror the original winsound.Beep sequence: A5 → C6 → E6.
+    Tones mirror the original winsound.Beep sequence: A5 -> C6 -> E6.
     """
     sample_rate = 44100
     num_channels = 1
@@ -106,6 +107,15 @@ def processing_complete_alert_play() -> None:
     **Custom sounds**: Replace ``assets/alert_chime.wav`` with any standard WAV
     file.  Delete the file to regenerate the default chime on next run.
     """
+
+    # Self-guard: never play sounds during automated test runs.
+    # pytest sets PYTEST_CURRENT_TEST for every test automatically.
+    # This check is import-order-proof — unlike external monkeypatches which
+    # break when callers do `from utils.processing_alert import <func>` (the
+    # caller binds the original function object, so patching the module attr
+    # never reaches them).  See learning/python-audio.md.
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
 
     try:
         import winsound  # Windows only; ImportError silently skipped on other platforms

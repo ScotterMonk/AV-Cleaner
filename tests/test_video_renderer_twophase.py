@@ -352,7 +352,7 @@ def test_classify_segments_keyframe_after_start_is_bridge():
 
     assert len(result) == 1
     seg = result[0]
-    # kf_before (largest kf <= 2.95) is 0.0; distance = 2.95 > 0.1 → bridge
+    # kf_before (largest kf <= 2.95) is 0.0; distance = 2.95 > 0.1 -> bridge
     assert seg["type"] == "bridge", (
         f"Segment with nearest-kf AFTER start must be 'bridge', got {seg['type']!r}"
     )
@@ -526,7 +526,7 @@ def test_render_video_segment_copy_output_side_trim_when_kf_before_start(monkeyp
 
     monkeypatch.setattr(video_renderer_twophase.subprocess, "run", _fake_run)
 
-    # kf_start=2.5, start=2.55, end=8.0 → extra=0.05, duration=5.45
+    # kf_start=2.5, start=2.55, end=8.0 -> extra=0.05, duration=5.45
     video_renderer_twophase.render_video_segment_copy(
         input_path="source.mp4",
         kf_start=2.5,
@@ -775,7 +775,7 @@ def test_render_video_smart_copy_concat_list_order(tmp_path, monkeypatch):
     monkeypatch.setattr(video_renderer_twophase.subprocess, "run", _fake_subprocess_run)
 
     out_path = str(tmp_path / "output.mp4")
-    # Keyframes: 0.0, 5.0, 8.0 → segment (0.0,1.5) is copy, (3.0,4.5) is bridge, (8.0,10.0) is copy
+    # Keyframes: 0.0, 5.0, 8.0 -> segment (0.0,1.5) is copy, (3.0,4.5) is bridge, (8.0,10.0) is copy
     keyframes = [0.0, 5.0, 8.0]
     keep_segments = [(0.0, 1.5), (3.0, 4.5), (8.0, 10.0)]
 
@@ -864,7 +864,7 @@ def test_render_video_smart_copy_cleanup_on_success(tmp_path, monkeypatch):
     video_renderer_twophase.render_video_smart_copy(
         input_path="source.mp4",
         keep_segments=[(0.0, 5.0), (10.0, 15.0)],
-        keyframes=[0.0, 10.0],   # both exact matches → copy
+        keyframes=[0.0, 10.0],   # both exact matches -> copy
         out_path=out_path,
         enc_opts={"vcodec": "libx264"},
     )
@@ -983,7 +983,7 @@ def _apply_common_twophase_mocks(monkeypatch, source_codec="h264"):
         captured["audio_phase"].append({"src": src, "filters": filters, "segs": segs})
     monkeypatch.setattr(_tp, "render_audio_phase", _fake_audio_phase)
 
-    def _fake_smart_copy(src, segs, kfs, out, enc_opts, snap):
+    def _fake_smart_copy(src, segs, kfs, out, enc_opts, snap, label=""):
         captured["smart_copy"].append({"src": src, "segs": segs, "kfs": kfs})
     monkeypatch.setattr(_tp, "render_video_smart_copy", _fake_smart_copy)
 
@@ -1251,7 +1251,7 @@ def test_render_project_falls_back_without_flag(monkeypatch, tmp_path):
     monkeypatch.setattr(
         _vr,
         "_build_filter_chain",
-        lambda src, filters, keep_segments, input_kwargs: calls["single_pass"].append(
+        lambda src, filters, keep_segments, input_kwargs, **kwargs: calls["single_pass"].append(
             {
                 "src": src,
                 "filters": filters,
@@ -1388,8 +1388,8 @@ def test_quantize_segments_to_frames_rounds_to_nearest_frame():
 
     fps = 60.0
 
-    # start=0.005 → round(0.005 × 60) = round(0.30) = 0 → 0/60 = 0.0
-    # end=1.008   → round(1.008 × 60) = round(60.48) = 60 → 60/60 = 1.0
+    # start=0.005 -> round(0.005 × 60) = round(0.30) = 0 -> 0/60 = 0.0
+    # end=1.008   -> round(1.008 × 60) = round(60.48) = 60 -> 60/60 = 1.0
     segs = [(0.005, 1.008)]
     result = quantize_segments_to_frames(segs, fps)
     assert len(result) == 1

@@ -79,6 +79,20 @@ def _render_with_safe_overwrite(input_path: str, output_path: str, render: Calla
             raise
 
 
+def cpu_threads_from_config(config: dict) -> int:
+    """Compute FFmpeg -threads value from cpu_limit_pct config setting.
+
+    Maps cpu_limit_pct (1–100) to a per-process thread count based on the
+    number of logical CPU cores. Passing the result as threads=N in enc_opts
+    causes ffmpeg.output() to emit -threads N, capping encode/filter threads
+    per FFmpeg process.  Default 80% keeps the machine usable during encodes.
+    """
+    pct = int((config or {}).get("cpu_limit_pct", 80))
+    pct = max(1, min(100, pct))
+    total = os.cpu_count() or 1
+    return max(1, round(total * pct / 100))
+
+
 def build_cpu_enc_opts(config):
     """Pure helper to build CPU encoder options for ffmpeg.output()."""
     config = config or {}
@@ -179,11 +193,83 @@ def select_enc_opts(config, caps):
     return build_cpu_enc_opts(config)
 
 
+def _apply_cut_fades(segments: list, cut_fade_s: float) -> list:
+    """Return per-segment afade filter specs for click/pop elimination at cut boundaries.
+
+    A 15–20 ms afade envelope is wrapped around each cut boundary — fade-out at the
+    tail of the segment before the cut, fade-in at the head of the segment after it.
+    The envelope is imperceptible as a volume change but eliminates the sample
+    discontinuity that the AAC encoder would otherwise reproduce as a click or pop.
+
+    Args:
+        segments:    Sorted (start_s, end_s) keep-segment tuples (already merged).
+        cut_fade_s:  Fade duration in seconds. 0 disables fading entirely; configs
+                     without the key also default to 0 (fully backward-compatible).
+
+    Returns:
+        List of length len(segments); each element is a list of afade spec dicts
+        with keys: 'type' ('in'|'out'), 'st' (float, seconds), 'd' (float, seconds).
+        PTS is assumed to have been reset to 0 by asetpts before these fades run.
+
+    Behaviour:
+        - Single segment  -> no fades (nothing was cut)
+        - First segment   -> fade-out only  (no cut precedes it, so no fade-in)
+        - Last segment    -> fade-in only   (no cut follows it)
+        - Middle segments -> fade-in then fade-out
+        - Too-short (duration < required fade budget) -> skip fades + log debug
+    """
+    n = len(segments)
+
+    # Fast path: fading disabled or nothing to process.
+    if cut_fade_s <= 0 or n == 0:
+        return [[] for _ in segments]
+
+    # Single segment: nothing was cut; no fades needed.
+    if n == 1:
+        return [[]]
+
+    result = []
+    for idx, (start, end) in enumerate(segments):
+        duration = end - start
+        is_first = (idx == 0)
+        is_last = (idx == n - 1)
+
+        needs_fade_in = not is_first
+        needs_fade_out = not is_last
+
+        # Budget: how much fade headroom this segment must provide.
+        fade_budget = (
+            cut_fade_s          # first or last: one sided
+            if (is_first or is_last)
+            else 2 * cut_fade_s  # middle: fade-in + fade-out
+        )
+
+        if duration < fade_budget:
+            logger.debug(
+                "_apply_cut_fades: segment %d/%d too short (%.3fs < %.3fs); skipping fades",
+                idx + 1, n, duration, fade_budget,
+            )
+            result.append([])
+            continue
+
+        fades = []
+        if needs_fade_in:
+            # PTS is reset to 0 by asetpts, so fade-in always starts at t=0.
+            fades.append({"type": "in", "st": 0.0, "d": cut_fade_s})
+        if needs_fade_out:
+            # Fade-out starts at (duration - fade_duration) relative to reset PTS.
+            fades.append({"type": "out", "st": duration - cut_fade_s, "d": cut_fade_s})
+        result.append(fades)
+
+    return result
+
+
 def _build_filter_chain(
     input_path: str,
     filters: list,
     keep_segments: list,
     input_kwargs: dict,
+    cut_fade_s: float = 0.0,
 ) -> tuple:
     """Build ffmpeg-python video + audio streams for one input file.
 
@@ -206,7 +292,7 @@ def _build_filter_chain(
         merged_away = original_count - len(keep_segments)
         if merged_away:
             logger.info(
-                "_build_filter_chain(%s): merged %d micro-gap pair(s); segments %d → %d",
+                "_build_filter_chain(%s): merged %d micro-gap pair(s); segments %d -> %d",
                 os.path.basename(str(input_path)),
                 merged_away,
                 original_count,
@@ -248,6 +334,9 @@ def _build_filter_chain(
             split_node = a.filter_multi_output("asplit", outputs=len(keep_segments))
             audio_inputs = [split_node.stream(i) for i in range(len(keep_segments))]
 
+        # Compute per-segment afade specs BEFORE the loop (uses merged segments).
+        fade_specs = _apply_cut_fades(keep_segments, cut_fade_s)
+
         for idx, (start, end) in enumerate(keep_segments):
             # Video Trim (Reset PTS to start at 0 relative to segment)
             seg_v = v.trim(start=start, end=end).setpts("PTS-STARTPTS")
@@ -256,6 +345,11 @@ def _build_filter_chain(
             # Audio Trim (Must match exactly)
             a_in = audio_inputs[idx] if audio_inputs is not None else a
             seg_a = a_in.filter_("atrim", start=start, end=end).filter_("asetpts", "PTS-STARTPTS")
+
+            # Apply cut-boundary afade filters (click/pop elimination).
+            for spec in fade_specs[idx]:
+                seg_a = seg_a.filter_("afade", t=spec["type"], st=spec["st"], d=spec["d"])
+
             segments_a.append(seg_a)
 
         # Concatenate all segments using a single combined concat to guarantee A/V sync.
@@ -362,7 +456,7 @@ def merge_close_segments(
     Example
     -------
     >>> merge_close_segments([(10.0, 12.5), (12.56, 15.0)], gap_threshold_s=0.080)
-    [(10.0, 15.0)]   # 60 ms gap → merged
+    [(10.0, 15.0)]   # 60 ms gap -> merged
 
     Args:
         keep_segments:   Sorted list of (start, end) float tuples (seconds).
@@ -439,7 +533,7 @@ def merge_close_segments_adaptive(
     final_threshold_ms = (threshold - step_s) * 1000
     logger.info(
         "merge_close_segments_adaptive: high segment count triggered adaptive widening; "
-        "final threshold=%.0f ms, segments %d → %d",
+        "final threshold=%.0f ms, segments %d -> %d",
         final_threshold_ms,
         len(keep_segments),
         len(result),
@@ -493,6 +587,7 @@ def _render_as_chunks(
     input_kwargs: dict,
     chunk_size: int,
     label: str = "",
+    cut_fade_s: float = 0.0,
 ) -> None:
     """Render by splitting keep_segments into N parallel FFmpeg chunk processes.
 
@@ -510,7 +605,7 @@ def _render_as_chunks(
     chunks = partition_segments(keep_segments, chunk_size)
     n = len(chunks)
     logger.info(
-        "Chunked parallel render: %d segments → %d chunks of ≤%d segs  [%s]",
+        "Chunked parallel render: %d segments -> %d chunks of ≤%d segs  [%s]",
         len(keep_segments), n, chunk_size, os.path.basename(input_path),
     )
 
@@ -535,9 +630,9 @@ def _render_as_chunks(
             print(f"\n=== {pfx}Chunk {idx + 1}/{n}: {len(chunk_segs)} segments ===", flush=True)
             logger.info("[DETAIL] %sChunk %d of %d start", pfx, idx + 1, n)
             chunk_start = time.time()
-            v, a = _build_filter_chain(input_path, filters, chunk_segs, input_kwargs)
+            v, a = _build_filter_chain(input_path, filters, chunk_segs, input_kwargs, cut_fade_s=cut_fade_s)
             stream = ffmpeg.output(v, a, chunk_out, **enc_opts)
-            logger.info("Chunk %d/%d: rendering %d segs → %s", idx + 1, n, len(chunk_segs), chunk_out)
+            logger.info("Chunk %d/%d: rendering %d segs -> %s", idx + 1, n, len(chunk_segs), chunk_out)
             run_with_progress(stream, overwrite_output=True)
             elapsed = _fmt_elapsed(time.time() - chunk_start)
             logger.info("[DETAIL] %sChunk %d of %d complete - Took %s", pfx, idx + 1, n, elapsed)
@@ -569,7 +664,7 @@ def _render_as_chunks(
         ]
         pfx = f"{label} " if label else ""
         logger.info("[DETAIL] %sChunk concat: joining %d chunks", pfx, n)
-        logger.info("Chunk concat pass: joining %d chunks → %s", n, out_path)
+        logger.info("Chunk concat pass: joining %d chunks -> %s", n, out_path)
         concat_start = time.time()
         proc = subprocess.run(concat_cmd, capture_output=True, text=True, encoding="utf-8")
         if proc.returncode != 0:
@@ -577,7 +672,7 @@ def _render_as_chunks(
                 f"Chunk concat demuxer failed (rc={proc.returncode}):\n{proc.stderr}"
             )
         elapsed = _fmt_elapsed(time.time() - concat_start)
-        logger.info("Chunk concat complete → %s", out_path)
+        logger.info("Chunk concat complete -> %s", out_path)
         logger.info("[DETAIL] %sChunk concat complete - Took %s", pfx, elapsed)
 
     finally:
@@ -622,6 +717,8 @@ def render_project(host_path, guest_path, manifest, out_host, out_guest, config)
 
     # Common Output Settings
     enc_opts = select_enc_opts(config, caps)
+    # Throttle per-process FFmpeg thread count to honour cpu_limit_pct.
+    enc_opts["threads"] = cpu_threads_from_config(config or {})
 
     logger.info(
         "Selected encoder options: vcodec=%s preset=%s crf=%s cq=%s rc=%s acodec=%s audio_bitrate=%s",
@@ -635,6 +732,11 @@ def render_project(host_path, guest_path, manifest, out_host, out_guest, config)
     )
 
     cfg = config or {}
+
+    # Cut-boundary fade: eliminates clicks/pops at sample-level splice discontinuities.
+    # Default 0 -> disabled; old configs without the key are safe (backward-compatible).
+    cut_fade_ms = float(cfg.get("cut_fade_ms", 0))
+    cut_fade_s = cut_fade_ms / 1000.0
 
     # Two-phase render dispatch (audio-first + smart video copy).
     # NOTE: probe_ffmpeg_capabilities() is LRU-cached; select_enc_opts() above is
@@ -663,11 +765,11 @@ def render_project(host_path, guest_path, manifest, out_host, out_guest, config)
     if use_chunks:
         n_chunks = (n_segs + chunk_size - 1) // chunk_size
         logger.info(
-            "Chunk-parallel rendering ACTIVE: %d segments, chunk_size=%d → %d chunks",
+            "Chunk-parallel rendering ACTIVE: %d segments, chunk_size=%d -> %d chunks",
             n_segs, chunk_size, n_chunks,
         )
         logger.info(
-            "[DETAIL] Encoding strategy: chunk-parallel | %d segments → %d chunks × %d video(s)",
+            "[DETAIL] Encoding strategy: chunk-parallel | %d segments -> %d chunks × %d video(s)",
             n_segs, n_chunks, out_count,
         )
     else:
@@ -687,10 +789,12 @@ def render_project(host_path, guest_path, manifest, out_host, out_guest, config)
                 _render_as_chunks(
                     host_path, manifest.host_filters, manifest.keep_segments,
                     to_path, enc_opts, input_kwargs, chunk_size, label="Host",
+                    cut_fade_s=cut_fade_s,
                 )
             else:
                 h_v, h_a = _build_filter_chain(
-                    host_path, manifest.host_filters, manifest.keep_segments, input_kwargs
+                    host_path, manifest.host_filters, manifest.keep_segments, input_kwargs,
+                    cut_fade_s=cut_fade_s,
                 )
                 stream = ffmpeg.output(h_v, h_a, to_path, **enc_opts)
                 run_with_progress(stream, overwrite_output=True)
@@ -702,10 +806,12 @@ def render_project(host_path, guest_path, manifest, out_host, out_guest, config)
                 _render_as_chunks(
                     guest_path, manifest.guest_filters, manifest.keep_segments,
                     to_path, enc_opts, input_kwargs, chunk_size, label="Guest",
+                    cut_fade_s=cut_fade_s,
                 )
             else:
                 g_v, g_a = _build_filter_chain(
-                    guest_path, manifest.guest_filters, manifest.keep_segments, input_kwargs
+                    guest_path, manifest.guest_filters, manifest.keep_segments, input_kwargs,
+                    cut_fade_s=cut_fade_s,
                 )
                 stream = ffmpeg.output(g_v, g_a, to_path, **enc_opts)
                 run_with_progress(stream, overwrite_output=True)

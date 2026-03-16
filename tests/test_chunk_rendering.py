@@ -68,7 +68,7 @@ class TestPartitionSegments:
         assert all(len(c) == 50 for c in result)
 
     def test_chunk_size_larger_than_segments_yields_one_chunk(self):
-        """chunk_size > len(segments) → one chunk containing all segments."""
+        """chunk_size > len(segments) -> one chunk containing all segments."""
         segs = [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)]
         result = partition_segments(segs, chunk_size=50)
         assert len(result) == 1
@@ -87,7 +87,7 @@ class TestPartitionSegments:
         assert all(len(c) == 2 for c in result)
 
     def test_remainder_chunk(self):
-        """101 segments with chunk_size=50 → [50, 50, 1]."""
+        """101 segments with chunk_size=50 -> [50, 50, 1]."""
         segs = [(float(i), float(i + 1)) for i in range(101)]
         result = partition_segments(segs, chunk_size=50)
         assert len(result) == 3
@@ -152,7 +152,7 @@ class TestChunkActivationLogic:
         assert self._use_chunks(True, 50, 51) is True
 
     def test_enabled_exactly_at_threshold_no_activation(self):
-        """n_segs == chunk_size → single chunk → no benefit, don't activate."""
+        """n_segs == chunk_size -> single chunk -> no benefit, don't activate."""
         assert self._use_chunks(True, 50, 50) is False
 
     def test_enabled_below_threshold_no_activation(self):

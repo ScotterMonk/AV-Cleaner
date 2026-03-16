@@ -21,7 +21,7 @@ import os
 import subprocess
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import ffmpeg
@@ -37,6 +37,7 @@ from io_.video_renderer import (
     _fmt_elapsed,
     _render_with_safe_overwrite,
     build_input_kwargs,
+    cpu_threads_from_config,
     merge_close_segments,
 )
 from io_.video_renderer_progress import run_with_progress
@@ -283,7 +284,7 @@ def render_video_segment_copy(
         )
 
 
-# Known video encoder key → canonical FFmpeg flag
+# Known video encoder key -> canonical FFmpeg flag
 _VIDEO_KEY_MAP = {
     "vcodec": "-c:v",
     "preset": "-preset",
@@ -353,7 +354,7 @@ def render_video_segment_bridge(
         start:      Logical segment start timestamp (seconds).
         end:        Logical segment end timestamp (seconds).
         out_path:   Destination path for the re-encoded video-only segment.
-        enc_opts:   Encoder options dict mapping option name → value.
+        enc_opts:   Encoder options dict mapping option name -> value.
                     Video-related keys are forwarded as FFmpeg flags;
                     audio-only keys (``acodec``, ``audio_bitrate``) are
                     always excluded.
@@ -410,6 +411,7 @@ def render_video_smart_copy(
     out_path: str,
     enc_opts: dict,
     snap_tolerance_s: float = 0.1,
+    label: str = "",
 ) -> None:
     """Render smart-copy video: classify segments by keyframe, render in parallel, concat.
 
@@ -481,9 +483,19 @@ def render_video_smart_copy(
         _worker_cap = 3 if is_nvenc else 8  # 3 = safe consumer GPU session limit
         max_workers = min(len(classified), _worker_cap)
         logger.info(
-            "render_video_smart_copy: %d segments → max_workers=%d (%s encoder)",
+            "render_video_smart_copy: %d segments -> max_workers=%d (%s encoder)",
             len(classified), max_workers, "nvenc" if is_nvenc else "cpu",
         )
+
+        # Inform the user what's happening during the silent parallel-encode phase.
+        pfx = f"{label} " if label else ""
+        label_lower = label.lower() if label else "video"
+        logger.info(
+            "[DETAIL] %svideo render: encoding %d segments in parallel (%s encoder)"
+            " — this part may take awhile...",
+            pfx, len(classified), "nvenc" if is_nvenc else "cpu",
+        )
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for seg, tmp_path in zip(classified, tmp_paths):
@@ -508,9 +520,16 @@ def render_video_smart_copy(
                     )
                 futures.append(fut)
 
-            # Step 6: surface any worker failure immediately.
-            for fut in futures:
-                fut.result()
+            # Step 6: surface any worker failure immediately; log per-segment progress.
+            total = len(futures)
+            completed = 0
+            for fut in as_completed(futures):
+                fut.result()  # re-raise any exception from the worker
+                completed += 1
+                logger.info(
+                    "%d of %d %s segments rendered.",
+                    completed, total, label_lower,
+                )
 
         # Step 7: write concat list file — one absolute path per segment in order.
         # Include explicit `duration` directives so the concat demuxer uses the
@@ -621,7 +640,15 @@ def render_project_two_phase(
     use_cuda_decode = bool(cfg.get("cuda_decode_enabled"))
     input_kwargs = build_input_kwargs(config, caps) if use_cuda_decode else {}
     audio_opts = {k: enc_opts[k] for k in ("acodec", "audio_bitrate") if k in enc_opts}
+    # Throttle per-process FFmpeg thread count to honour cpu_limit_pct.
+    thread_count = cpu_threads_from_config(cfg)
+    enc_opts["threads"] = thread_count
+    audio_opts["threads"] = thread_count
     snap_tol = float(cfg.get("keyframe_snap_tolerance_s", 0.1))
+    # Cut-boundary fade: passed into the non-h264 single-pass fallback only.
+    # The two-phase audio path (render_audio_phase) handles its own filter graph.
+    cut_fade_ms = float(cfg.get("cut_fade_ms", 0))
+    cut_fade_s = cut_fade_ms / 1000.0
 
     def _render_track(src_path: str, filters: list, to_path: str, label: str = "") -> None:
         # Normalize empty keep_segments to full-duration span.
@@ -650,7 +677,7 @@ def render_project_two_phase(
             # Use quantized `segs` (not raw manifest.keep_segments) so the
             # single-pass filter graph uses frame-aligned boundaries.
             logger.info("two-phase: non-h264 codec=%r; single-pass fallback", source_codec)
-            v, a = _build_filter_chain(src_path, filters, segs, input_kwargs)
+            v, a = _build_filter_chain(src_path, filters, segs, input_kwargs, cut_fade_s=cut_fade_s)
             run_with_progress(ffmpeg.output(v, a, to_path, **enc_opts), overwrite_output=True)
             return
         out_dir = Path(to_path).parent
@@ -672,7 +699,7 @@ def render_project_two_phase(
 
             t0 = time.monotonic()
             logger.info("[DETAIL] %svideo copy: started (%d segments)", pfx, len(segs))
-            render_video_smart_copy(src_path, segs, keyframes, tmp_video, enc_opts, snap_tol)
+            render_video_smart_copy(src_path, segs, keyframes, tmp_video, enc_opts, snap_tol, label=label)
             logger.info("[DETAIL] %svideo copy: complete | Took %s", pfx, _fmt_elapsed(time.monotonic() - t0))
 
             t0 = time.monotonic()

@@ -27,6 +27,11 @@ flowchart LR
     G --> I[Aligned processed pair]
     H --> I
 ```
+**Give credit to the creator**.
+This application is a labor of love.
+It's *free to use, fork, change with no licensing rules*.
+Please show *your* love by starring the repo at:
+https://github.com/ScotterMonk/AV-Cleaner
 
 ## Requirements
 1) Python >= 3.13
