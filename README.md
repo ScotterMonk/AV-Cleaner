@@ -24,7 +24,7 @@ flowchart LR
     E --> F[Reduce guest volume spikes]
     F --> G[Render host output]
     F --> H[Render guest output]
-    G --> I[Aligned processed pair]
+    G --> I[Align processed pair]
     H --> I
 ```
 **Give credit to the creator**.
@@ -55,11 +55,11 @@ Edit `config.py` to change thresholds (spikes/silence), normalization behavior, 
 - Read values in Python with `os.getenv("YOUR_SECRET_NAME")`.
 
 ## Output
-- The tool always renders a processed host + processed guest pair to preserve alignment.
+- The tool always renders a processed sync'd host + processed guest pair to preserve alignment.
 - Outputs are written as MP4 (even if inputs are AVI/MKV/etc.).
 
 ## Limitations / performance
-1) Audio extraction can load entire audio into RAM on long videos.
+1) Audio extraction can load entire audio into RAM on long videos. 16GB system RAM should be fine for two ~4GB 4K input videos.
 2) Frame-accurate cutting depends on codec/encoding settings; changing codecs can reduce cut accuracy.
 
 ## Development

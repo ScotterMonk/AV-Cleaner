@@ -1,17 +1,17 @@
 import tkinter as tk
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from ui.gui_settings_page import SettingsPage
 
 
 class _PanelStub:
     def __init__(self, master: tk.Widget, bg: str) -> None:
-        self.frame = tk.Frame(master, bg=bg)
-        self.body = tk.Frame(self.frame, bg=bg)
-        self.body.pack(fill="both", expand=True)
+        self.frame = MagicMock()
+        self.body = MagicMock()
 
     def grid(self, *args, **kwargs) -> None:
-        self.frame.grid(*args, **kwargs)
+        pass
 
 
 class _AppStub:
@@ -32,14 +32,46 @@ class _AppStub:
     def _mono(self, weight: str | None = None):
         return ("Cascadia Mono", 9, weight or "normal")
 
-    def _make_btn(self, parent: tk.Widget, text: str, command, kind: str = "secondary") -> tk.Button:
-        return tk.Button(parent, text=text, command=command)
+    def _make_btn(self, parent: tk.Widget, text: str, command, kind: str = "secondary") -> MagicMock:
+        return MagicMock()
 
     def _make_panel(self, parent: tk.Widget, title: str) -> _PanelStub:
         return _PanelStub(parent, self._palette["panel"])
 
     def set_status(self, text: str) -> None:
         self.statuses.append(text)
+
+
+def _setup_mocks(monkeypatch):
+    """Setup mocks for tkinter to avoid TclError/RuntimeError."""
+    # Mock classes using a simple lambda that returns a MagicMock without any spec
+    monkeypatch.setattr("tkinter.Tk", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr("tkinter.Frame", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr("tkinter.Label", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr("tkinter.Button", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr("tkinter.Canvas", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr("tkinter.Scrollbar", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr("tkinter.Entry", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr("tkinter.Checkbutton", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr("tkinter.Radiobutton", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr("tkinter.OptionMenu", lambda *a, **kw: MagicMock())
+
+    class MockVar:
+        def __init__(self, value=None, **kwargs):
+            self.val = value
+
+        def get(self):
+            return str(self.val) if self.val is not None else ""
+
+        def set(self, value):
+            self.val = value
+
+    class MockBooleanVar(MockVar):
+        def get(self):
+            return bool(self.val)
+
+    monkeypatch.setattr("tkinter.StringVar", MockVar)
+    monkeypatch.setattr("tkinter.BooleanVar", MockBooleanVar)
 
 
 def test_settings_page_reload_loads_filler_word_mute_fields(monkeypatch, tmp_path):
@@ -60,15 +92,17 @@ def test_settings_page_reload_loads_filler_word_mute_fields(monkeypatch, tmp_pat
         lambda _path: config_data,
     )
 
+    _setup_mocks(monkeypatch)
+
     root = tk.Tk()
-    root.withdraw()
     try:
         page = SettingsPage(root, _AppStub(root, tmp_path))
 
         assert page._word_vars["filler_mute_inset_ms"].get() == "35"
         assert page._word_vars["filler_mute_gap_threshold_ms"].get() == "75"
     finally:
-        root.destroy()
+        if hasattr(root, "destroy"):
+            root.destroy()
 
 
 def test_settings_page_save_writes_filler_word_mute_fields(monkeypatch, tmp_path):
@@ -114,8 +148,9 @@ def test_settings_page_save_writes_filler_word_mute_fields(monkeypatch, tmp_path
 
     monkeypatch.setattr("ui.gui_settings_page.ConfigEditor.write_gui_and_pipeline", _capture_write)
 
+    _setup_mocks(monkeypatch)
+
     root = tk.Tk()
-    root.withdraw()
     try:
         page = SettingsPage(root, _AppStub(root, tmp_path))
         page._word_vars["filler_mute_inset_ms"].set("45")
@@ -126,4 +161,5 @@ def test_settings_page_save_writes_filler_word_mute_fields(monkeypatch, tmp_path
         assert writes[-1]["filler_mute_inset_ms"] == 45
         assert writes[-1]["filler_mute_gap_threshold_ms"] == 95
     finally:
-        root.destroy()
+        if hasattr(root, "destroy"):
+            root.destroy()

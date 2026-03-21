@@ -368,6 +368,11 @@ class AVCleanerGUI(tk.Tk):
         GUI.clear()
         GUI.update(gui_dict)
 
+        # Capture CPU throttle settings for the OS-level Job Object applied at run start.
+        active_preset = _qual_presets.get("PODCAST_HIGH_QUALITY", {})
+        self._cpu_limit_pct = int(active_preset.get("cpu_limit_pct", 80))
+        self._cpu_rate_correction = float(active_preset.get("cpu_rate_correction", 0.90))
+
         settings_page = self._pages.get("settings")
         if settings_page is not None and hasattr(settings_page, "_reload"):
             settings_page._reload()
@@ -564,6 +569,10 @@ class AVCleanerGUI(tk.Tk):
         if not self._reload_runtime_settings():
             return
 
+        # Evict any stale override file left by a previous crashed run.
+        from utils.cpu_override import clear_live_cpu_pct
+        clear_live_cpu_pct()
+
         self.set_status("Running…")
         self.after(0, self._proc_ui_update, True)
 
@@ -596,6 +605,23 @@ class AVCleanerGUI(tk.Tk):
                     text=True,
                     bufsize=1,
                 )
+
+                # Apply OS-level CPU hard cap via Windows Job Object.
+                # All child processes (FFmpeg) inherit the cap automatically.
+                # Best-effort: must never abort the worker on failure.
+                try:
+                    from utils.cpu_job_object import apply_cpu_limit
+                    cpu_pct = getattr(self, "_cpu_limit_pct", 80)
+                    cpu_corr = getattr(self, "_cpu_rate_correction", 0.90)
+                    self._cpu_job = apply_cpu_limit(self._proc.pid, cpu_pct, cpu_corr)
+                    if self._cpu_job:
+                        self.append_log(
+                            f"[GUI] CPU limit: {cpu_pct}% (correction {cpu_corr:.2f}) "
+                            f"→ {cpu_pct * cpu_corr:.1f}% kernel cap applied\n"
+                        )
+                except Exception:
+                    self._cpu_job = None
+
                 assert self._proc.stdout is not None
                 for line in self._proc.stdout:
                     # Classify each line: FFmpeg render stats vs. regular output.
@@ -645,6 +671,21 @@ class AVCleanerGUI(tk.Tk):
                 self.set_status("Failed")
                 _play_alert = True
             finally:
+                # Release the CPU rate-limiting Job Object handle.
+                try:
+                    from utils.cpu_job_object import release_job
+                    release_job(getattr(self, "_cpu_job", None))
+                    self._cpu_job = None
+                except Exception:
+                    pass
+
+                # Clean up cpu live-override file regardless of outcome.
+                try:
+                    from utils.cpu_override import clear_live_cpu_pct as _clear
+                    _clear()
+                except Exception:
+                    pass
+
                 # Always restore buttons to idle state when the worker exits.
                 self.after(0, self._proc_ui_update, False)
                 # Play the completion chime exactly once, directly from the

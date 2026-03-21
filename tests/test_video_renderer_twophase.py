@@ -1423,3 +1423,82 @@ def test_quantize_segments_to_frames_degenerate_segment_gets_one_frame():
         f"Degenerate segment duration must be exactly 1 frame ({frame:.6f}s), got {q_e - q_s:.6f}s"
     )
 
+
+def test_seam_reads_live_cpu_override(monkeypatch, tmp_path):
+    """video-copy phase picks up live thread-count override while preserving original audio-phase setup."""
+    from io_ import video_renderer_twophase as mod
+    import io_.video_renderer as vr
+    from pathlib import Path
+
+    captured = {}
+
+    sentinel = 3
+    original = 99
+
+    # Patch live override resolver (used at seam)
+    def fake_resolve_threads(cfg):
+        return sentinel
+    monkeypatch.setattr("utils.cpu_override.resolve_threads", fake_resolve_threads)
+    monkeypatch.setattr(
+        mod, "resolve_threads", fake_resolve_threads, raising=False
+    )
+
+    def fake_audio_phase(src, filters, segs, out, audio_opts):
+        captured["audio_threads"] = audio_opts.get("threads")
+    monkeypatch.setattr(mod, "render_audio_phase", fake_audio_phase)
+
+    def fake_video_smart_copy(src, segs, kf, dst, enc_opts, snap, **kw):
+        captured["video_threads"] = enc_opts.get("threads")
+    monkeypatch.setattr(mod, "render_video_smart_copy", fake_video_smart_copy)
+
+    monkeypatch.setattr(mod, "probe_video_stream_codec", lambda p: "h264")
+    monkeypatch.setattr(mod, "probe_video_keyframes", lambda p: [0.0])
+    monkeypatch.setattr(mod, "probe_video_fps", lambda p: 30.0)
+    monkeypatch.setattr(mod, "get_video_duration_seconds", lambda p: 10.0)
+    monkeypatch.setattr(mod, "quantize_segments_to_frames", lambda segs, fps: list(segs))
+    monkeypatch.setattr(mod, "run_with_progress", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "_render_with_safe_overwrite", lambda src, dst, fn: fn(dst))
+
+    # Mux is inline
+    import subprocess as sp
+    def fake_mux_run(cmd, **kwargs):
+        return sp.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+    monkeypatch.setattr(mod.subprocess, "run", fake_mux_run)
+
+    # Initial config setup uses these
+    monkeypatch.setattr(
+        vr, "probe_ffmpeg_capabilities",
+        lambda: {"ffmpeg_ok": True, "encoders": frozenset(), "hwaccels": frozenset()}
+    )
+    monkeypatch.setattr(
+        vr,
+        "select_enc_opts",
+        lambda cfg, caps: {
+            "threads": original,
+            "acodec": "aac",
+            "audio_bitrate": "192k",
+            "vcodec": "libx264",
+        },
+    )
+    monkeypatch.setattr(mod, "cpu_threads_from_config", lambda cfg: original)
+
+    manifest = _ManifestTP(
+        keep_segments=[(0.0, 10.0)], host_filters=[], guest_filters=[]
+    )
+
+    in_path = str(tmp_path / "seam_test_in.mp4")
+    out_path = str(tmp_path / "seam_test_out.mp4")
+    Path(in_path).touch()
+
+    config = {"two_phase_render_enabled": True, "cpu_limit_pct": 25}
+
+    mod.render_project_two_phase(
+        in_path, None, manifest, out_path, None, config
+    )
+
+    assert captured.get("video_threads") == sentinel, (
+        f"Expected video-copy to receive live sentinel {sentinel}, got {captured.get('video_threads')}"
+    )
+    assert captured.get("audio_threads") == original, (
+        f"Audio phase must preserve original threads {original}, got {captured.get('audio_threads')}"
+    )

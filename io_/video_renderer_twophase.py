@@ -697,9 +697,21 @@ def render_project_two_phase(
             keyframes = probe_video_keyframes(src_path)
             logger.info("[DETAIL] %skeyframe scan: complete | %d keyframes | Took %s", pfx, len(keyframes), _fmt_elapsed(time.monotonic() - t0))
 
+            # Re-read the live CPU override at the audio/video-phase seam so that
+            # any in-flight user adjustment takes effect for the video phase.
+            # Build a *new* local dict — shared enc_opts must never be mutated.
+            from utils.cpu_override import resolve_threads
+            fresh_threads = resolve_threads(cfg)
+            video_enc_opts = {**enc_opts, "threads": fresh_threads}
+            if fresh_threads != enc_opts.get("threads"):
+                logger.info(
+                    "[DETAIL] %sCPU override applied at video-phase seam: threads %s -> %d",
+                    pfx, enc_opts.get("threads"), fresh_threads,
+                )
+
             t0 = time.monotonic()
             logger.info("[DETAIL] %svideo copy: started (%d segments)", pfx, len(segs))
-            render_video_smart_copy(src_path, segs, keyframes, tmp_video, enc_opts, snap_tol, label=label)
+            render_video_smart_copy(src_path, segs, keyframes, tmp_video, video_enc_opts, snap_tol, label=label)
             logger.info("[DETAIL] %svideo copy: complete | Took %s", pfx, _fmt_elapsed(time.monotonic() - t0))
 
             t0 = time.monotonic()

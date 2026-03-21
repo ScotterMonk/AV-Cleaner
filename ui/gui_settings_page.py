@@ -260,6 +260,10 @@ class SettingsPage(tk.Frame):
             if not (1 <= cpu_pct <= 100):
                 raise ValueError("CPU limit % must be between 1 and 100")
             preset["cpu_limit_pct"] = cpu_pct
+            cpu_corr = to_float_s(self._qual_vars["cpu_rate_correction"], "CPU rate correction")
+            if not (0.10 <= cpu_corr <= 1.00):
+                raise ValueError("CPU rate correction must be between 0.10 and 1.00")
+            preset["cpu_rate_correction"] = cpu_corr
 
             # ---- Words to remove ----
             words_raw = self._word_vars["words_to_remove"].get().strip()
@@ -288,6 +292,17 @@ class SettingsPage(tk.Frame):
                 words_cfg,
             )
 
+            # If a run is active, push the new cpu_limit_pct as a live override
+            # so the next FFmpeg invocation (two-phase seam) picks it up.
+            if getattr(self._app, "_proc", None) and self._app._proc.poll() is None:
+                try:
+                    from utils.cpu_override import write_live_cpu_pct
+                    write_live_cpu_pct(cpu_pct)
+                except Exception as ov_exc:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "cpu_override: failed to write live override: %s", ov_exc
+                    )
         except Exception as e:
             messagebox.showerror("Save failed", str(e))
             return

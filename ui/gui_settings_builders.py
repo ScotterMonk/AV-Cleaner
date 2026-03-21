@@ -154,6 +154,7 @@ def build_pipeline_form(page, parent: tk.Frame) -> None:
         "cut_fade_ms": tk.StringVar(value="16"),
         "keyframe_snap_tolerance_s": tk.StringVar(value="0.1"),
         "cpu_limit_pct": tk.StringVar(value="80"),
+        "cpu_rate_correction": tk.StringVar(value="0.90"),
     }
 
     page._norm_mode = tk.StringVar(value="MATCH_HOST")
@@ -245,6 +246,7 @@ def render_pipeline_toggles(page, pipe_cfg: dict, qual_presets: dict, words_cfg:
     page._qual_vars["cut_fade_ms"].set(str(preset.get("cut_fade_ms", 16)))
     page._qual_vars["keyframe_snap_tolerance_s"].set(str(preset.get("keyframe_snap_tolerance_s", 0.1)))
     page._qual_vars["cpu_limit_pct"].set(str(preset.get("cpu_limit_pct", 80)))
+    page._qual_vars["cpu_rate_correction"].set(str(preset.get("cpu_rate_correction", 0.90)))
 
     cuda_enc = bool(preset.get("cuda_encode_enabled", False))
     page._enc_mode.set("gpu" if cuda_enc else "cpu")
@@ -465,6 +467,7 @@ def render_pipeline_toggles(page, pipe_cfg: dict, qual_presets: dict, words_cfg:
     mk_bool_row(render_sec, "two_phase_render_enabled", "Two-phase render enabled")
     mk_kv_row(render_sec, "Keyframe snap tolerance (sec)", page._qual_vars["keyframe_snap_tolerance_s"])
     mk_kv_row(render_sec, "CPU limit % (1–100)", page._qual_vars["cpu_limit_pct"])
+    mk_kv_row(render_sec, "CPU rate correction (0.10–1.00)", page._qual_vars["cpu_rate_correction"])
 
     tk.Label(
         page._pipe_container,
