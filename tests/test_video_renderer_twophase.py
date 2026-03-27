@@ -21,7 +21,7 @@ def test_config_two_phase_keys():
     from config import QUALITY_PRESETS
 
     assert QUALITY_PRESETS['PODCAST_HIGH_QUALITY']['two_phase_render_enabled'] is True
-    assert QUALITY_PRESETS['PODCAST_HIGH_QUALITY']['keyframe_snap_tolerance_s'] == 0.1
+    assert QUALITY_PRESETS['PODCAST_HIGH_QUALITY']['keyframe_snap_tolerance_s'] == 0.3
 
 
 # ---------------------------------------------------------------------------
@@ -759,7 +759,7 @@ def test_render_video_smart_copy_concat_list_order(tmp_path, monkeypatch):
         # File already created by mkstemp; nothing extra needed.
         pass
 
-    def _fake_bridge(input_path, kf_before, start, end, out_path, enc_opts):
+    def _fake_bridge(input_path, kf_before, start, end, out_path, enc_opts, cuda_decode_enabled=False):
         pass
 
     def _fake_subprocess_run(cmd, capture_output, text):
@@ -983,7 +983,7 @@ def _apply_common_twophase_mocks(monkeypatch, source_codec="h264"):
         captured["audio_phase"].append({"src": src, "filters": filters, "segs": segs})
     monkeypatch.setattr(_tp, "render_audio_phase", _fake_audio_phase)
 
-    def _fake_smart_copy(src, segs, kfs, out, enc_opts, snap, label=""):
+    def _fake_smart_copy(src, segs, kfs, out, enc_opts, snap, label="", cuda_decode_enabled=False, gpu_limit_pct=100):
         captured["smart_copy"].append({"src": src, "segs": segs, "kfs": kfs})
     monkeypatch.setattr(_tp, "render_video_smart_copy", _fake_smart_copy)
 

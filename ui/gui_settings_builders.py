@@ -155,6 +155,7 @@ def build_pipeline_form(page, parent: tk.Frame) -> None:
         "keyframe_snap_tolerance_s": tk.StringVar(value="0.1"),
         "cpu_limit_pct": tk.StringVar(value="80"),
         "cpu_rate_correction": tk.StringVar(value="0.90"),
+        "gpu_limit_pct": tk.StringVar(value="100"),
     }
 
     page._norm_mode = tk.StringVar(value="MATCH_HOST")
@@ -247,6 +248,10 @@ def render_pipeline_toggles(page, pipe_cfg: dict, qual_presets: dict, words_cfg:
     page._qual_vars["keyframe_snap_tolerance_s"].set(str(preset.get("keyframe_snap_tolerance_s", 0.1)))
     page._qual_vars["cpu_limit_pct"].set(str(preset.get("cpu_limit_pct", 80)))
     page._qual_vars["cpu_rate_correction"].set(str(preset.get("cpu_rate_correction", 0.90)))
+    # Map stored int (100/60/20) back to the dropdown display string
+    _gpu_pct_to_label = {100: "100% -> 5 workers", 60: "60% -> 3 workers", 20: "20% -> 1 worker"}
+    _gpu_stored = int(preset.get("gpu_limit_pct", 100))
+    page._qual_vars["gpu_limit_pct"].set(_gpu_pct_to_label.get(_gpu_stored, "100% -> 5 workers"))
 
     cuda_enc = bool(preset.get("cuda_encode_enabled", False))
     page._enc_mode.set("gpu" if cuda_enc else "cpu")
@@ -468,6 +473,9 @@ def render_pipeline_toggles(page, pipe_cfg: dict, qual_presets: dict, words_cfg:
     mk_kv_row(render_sec, "Keyframe snap tolerance (sec)", page._qual_vars["keyframe_snap_tolerance_s"])
     mk_kv_row(render_sec, "CPU limit % (1–100)", page._qual_vars["cpu_limit_pct"])
     mk_kv_row(render_sec, "CPU rate correction (0.10–1.00)", page._qual_vars["cpu_rate_correction"])
+    # GPU worker cap: maps percentage to NVENC concurrent session count
+    _GPU_LIMIT_OPTS = ["100% -> 5 workers", "60% -> 3 workers", "20% -> 1 worker"]
+    mk_dropdown_row(render_sec, "GPU limit % (NVENC workers)", page._qual_vars["gpu_limit_pct"], _GPU_LIMIT_OPTS)
 
     tk.Label(
         page._pipe_container,

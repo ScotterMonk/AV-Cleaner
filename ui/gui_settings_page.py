@@ -264,6 +264,14 @@ class SettingsPage(tk.Frame):
             if not (0.10 <= cpu_corr <= 1.00):
                 raise ValueError("CPU rate correction must be between 0.10 and 1.00")
             preset["cpu_rate_correction"] = cpu_corr
+            # Parse GPU limit dropdown ("100% -> 5 workers" → 100, etc.)
+            _gpu_label_to_pct = {
+                "100% -> 5 workers": 100,
+                "60% -> 3 workers": 60,
+                "20% -> 1 worker": 20,
+            }
+            gpu_label = self._qual_vars["gpu_limit_pct"].get().strip()
+            preset["gpu_limit_pct"] = _gpu_label_to_pct.get(gpu_label, 100)
 
             # ---- Words to remove ----
             words_raw = self._word_vars["words_to_remove"].get().strip()

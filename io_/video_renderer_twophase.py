@@ -331,6 +331,7 @@ def render_video_segment_bridge(
     end: float,
     out_path: str,
     enc_opts: dict,
+    cuda_decode_enabled: bool = False,
 ) -> None:
     """Re-encode a bridge video segment from a preceding keyframe.
 
@@ -348,16 +349,24 @@ def render_video_segment_bridge(
     with the pre-rendered audio-phase output downstream.
 
     Args:
-        input_path: Path to the source video file.
-        kf_before:  Keyframe timestamp (seconds) that precedes *start*;
-                    used as the FFmpeg input seek point (``-ss`` before ``-i``).
-        start:      Logical segment start timestamp (seconds).
-        end:        Logical segment end timestamp (seconds).
-        out_path:   Destination path for the re-encoded video-only segment.
-        enc_opts:   Encoder options dict mapping option name -> value.
-                    Video-related keys are forwarded as FFmpeg flags;
-                    audio-only keys (``acodec``, ``audio_bitrate``) are
-                    always excluded.
+        input_path:          Path to the source video file.
+        kf_before:           Keyframe timestamp (seconds) that precedes *start*;
+                             used as the FFmpeg input seek point (``-ss`` before ``-i``).
+        start:               Logical segment start timestamp (seconds).
+        end:                 Logical segment end timestamp (seconds).
+        out_path:            Destination path for the re-encoded video-only segment.
+        enc_opts:            Encoder options dict mapping option name -> value.
+                             Video-related keys are forwarded as FFmpeg flags;
+                             audio-only keys (``acodec``, ``audio_bitrate``) are
+                             always excluded.
+        cuda_decode_enabled: When True, prepend ``-hwaccel cuda`` before ``-i`` so
+                             FFmpeg decodes the input on the GPU.  This keeps the
+                             decode→encode pipeline on the GPU and avoids the
+                             CPU→GPU frame transfer bottleneck that starves NVENC.
+                             Note: the trim/setpts filter graph is still CPU-side;
+                             frames are downloaded automatically between stages.
+                             Defaults to False so existing call-sites without the
+                             argument are unchanged.
 
     Returns:
         None.
@@ -371,21 +380,29 @@ def render_video_segment_bridge(
 
     logger.debug(
         "render_video_segment_bridge: kf_before=%.3f start=%.3f end=%.3f "
-        "trim_start=%.3f trim_end=%.3f encoder=%s out=%s",
+        "trim_start=%.3f trim_end=%.3f encoder=%s cuda_decode=%s out=%s",
         kf_before,
         start,
         end,
         trim_start,
         trim_end,
         enc_opts.get("vcodec", "unknown"),
+        cuda_decode_enabled,
         out_path,
     )
 
     vf_filter = f"trim=start={trim_start}:end={trim_end},setpts=PTS-STARTPTS"
     enc_flags = _build_video_enc_flags(enc_opts)
 
-    cmd = [
-        "ffmpeg", "-y",
+    # Build command; -hwaccel must appear before -i (it is an input-side option).
+    cmd = ["ffmpeg", "-y"]
+    if cuda_decode_enabled:
+        # GPU decode: keeps the decode→encode path on the GPU, avoiding the
+        # CPU→GPU transfer bottleneck that limits NVENC throughput on bridge
+        # segments.  The trim/setpts filter is still CPU-side, but the net
+        # bandwidth saved on large segments is still significant.
+        cmd += ["-hwaccel", "cuda"]
+    cmd += [
         "-ss", str(kf_before),   # input seek BEFORE -i (fast, keyframe-accurate)
         "-i", input_path,
         "-vf", vf_filter,        # trim to [trim_start, trim_end) + PTS reset
@@ -404,6 +421,20 @@ def render_video_segment_bridge(
         )
 
 
+def gpu_workers_from_pct(gpu_limit_pct: int) -> int:
+    """Map gpu_limit_pct (100/60/20) to a maximum NVENC concurrent session count.
+
+    Consumer NVIDIA GPUs cap concurrent NVENC sessions at 3–5.  This mapping
+    gives users three meaningful steps that match the config dropdown options:
+      100% → 5 workers (full throughput, default)
+       60% → 3 workers (moderate GPU usage)
+       20% → 1 worker  (minimal GPU usage, leaves headroom for other apps)
+    Any unrecognised value defaults to 5 (maximum throughput).
+    """
+    mapping = {100: 5, 60: 3, 20: 1}
+    return mapping.get(int(gpu_limit_pct), 5)
+
+
 def render_video_smart_copy(
     input_path: str,
     keep_segments: list,
@@ -412,6 +443,8 @@ def render_video_smart_copy(
     enc_opts: dict,
     snap_tolerance_s: float = 0.1,
     label: str = "",
+    cuda_decode_enabled: bool = False,
+    gpu_limit_pct: int = 100,
 ) -> None:
     """Render smart-copy video: classify segments by keyframe, render in parallel, concat.
 
@@ -419,12 +452,15 @@ def render_video_smart_copy(
     files are cleaned up in the finally block regardless of success or failure.
 
     Args:
-        input_path:       Source video file.
-        keep_segments:    (start_s, end_s) tuples to retain.
-        keyframes:        Sorted keyframe timestamps in seconds.
-        out_path:         Destination for the final concatenated video.
-        enc_opts:         Encoder options forwarded to bridge segments.
-        snap_tolerance_s: Max distance (s) from keyframe to classify as 'copy'.
+        input_path:          Source video file.
+        keep_segments:       (start_s, end_s) tuples to retain.
+        keyframes:           Sorted keyframe timestamps in seconds.
+        out_path:            Destination for the final concatenated video.
+        enc_opts:            Encoder options forwarded to bridge segments.
+        snap_tolerance_s:    Max distance (s) from keyframe to classify as 'copy'.
+        cuda_decode_enabled: Forwarded to bridge-segment encode; enables GPU decode
+                             to reduce CPU→GPU transfer overhead (see
+                             render_video_segment_bridge docstring).
     """
     t_start = time.monotonic()
     out_dir = Path(out_path).parent
@@ -475,16 +511,18 @@ def render_video_smart_copy(
 
         # Step 5: render segments in parallel.
         # NVENC (GPU) encode sessions are a limited hardware resource: consumer
-        # NVIDIA GPUs cap concurrent sessions at 3–5.  With two tracks (host +
-        # guest) each spawning up to 8 workers, we can easily exceed that limit
-        # and get "incompatible client key" failures mid-encode.
+        # NVIDIA GPUs cap concurrent sessions at 3–5 (RTX 3080 supports 5).
+        # With two tracks (host + guest) each spawning workers, we can exceed
+        # that limit and get "incompatible client key" failures mid-encode.
         # CPU encoders have no such hard limit, so they can safely use 8.
+        # gpu_limit_pct controls the NVENC worker cap: 100%→5, 60%→3, 20%→1.
         is_nvenc = any("nvenc" in str(v).lower() for v in (enc_opts or {}).values())
-        _worker_cap = 3 if is_nvenc else 8  # 3 = safe consumer GPU session limit
+        _nvenc_cap = gpu_workers_from_pct(gpu_limit_pct)
+        _worker_cap = _nvenc_cap if is_nvenc else 8
         max_workers = min(len(classified), _worker_cap)
         logger.info(
-            "render_video_smart_copy: %d segments -> max_workers=%d (%s encoder)",
-            len(classified), max_workers, "nvenc" if is_nvenc else "cpu",
+            "render_video_smart_copy: %d segments -> max_workers=%d (%s encoder, gpu_limit_pct=%d%%)",
+            len(classified), max_workers, "nvenc" if is_nvenc else "cpu", gpu_limit_pct,
         )
 
         # Inform the user what's happening during the silent parallel-encode phase.
@@ -517,6 +555,7 @@ def render_video_smart_copy(
                         seg["end"],
                         tmp_path,
                         enc_opts,
+                        cuda_decode_enabled,  # pass through GPU decode flag
                     )
                 futures.append(fut)
 
@@ -711,7 +750,11 @@ def render_project_two_phase(
 
             t0 = time.monotonic()
             logger.info("[DETAIL] %svideo copy: started (%d segments)", pfx, len(segs))
-            render_video_smart_copy(src_path, segs, keyframes, tmp_video, video_enc_opts, snap_tol, label=label)
+            render_video_smart_copy(
+                src_path, segs, keyframes, tmp_video, video_enc_opts, snap_tol,
+                label=label, cuda_decode_enabled=use_cuda_decode,
+                gpu_limit_pct=int(cfg.get("gpu_limit_pct", 100)),
+            )
             logger.info("[DETAIL] %svideo copy: complete | Took %s", pfx, _fmt_elapsed(time.monotonic() - t0))
 
             t0 = time.monotonic()
