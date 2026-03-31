@@ -300,9 +300,10 @@ class TestFillerWordDetectorConfidenceGating:
         assert result[0]["action"] == "skipped"
 
     def test_guest_word_at_threshold_muted(self):
-        # config.py: confidence_required_guest = 0.92; 0.92 >= 0.92 -> muted
+        # config.py: confidence_required_guest=1.01, bonus=0.02;
+        # effective=1.01-(1*0.02)=0.99; 0.99>=0.99 -> muted
         det = self._detector()
-        result = det._filter_by_confidence([self._match("guest", 0.92)], "guest")
+        result = det._filter_by_confidence([self._match("guest", 0.99)], "guest")
         assert len(result) == 1
         assert result[0]["action"] == "mute"
 
@@ -323,7 +324,7 @@ class TestFillerWordDetectorConfidenceGating:
 
     def test_mixed_confidences_annotated(self):
         det = self._detector()
-        matches = [self._match("guest", 0.95, 1.0, 1.3), self._match("guest", 0.80, 2.0, 2.3)]
+        matches = [self._match("guest", 0.99, 1.0, 1.3), self._match("guest", 0.80, 2.0, 2.3)]
         result = det._filter_by_confidence(matches, "guest")
         assert len(result) == 2
         muted = [r for r in result if r["action"] == "mute"]

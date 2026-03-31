@@ -118,7 +118,33 @@ class CrossTalkDetector(BaseDetector):
             host_audio.frame_rate,
             window_ms
         )
-        
+
+        # Step 4b: Protect recording boundaries.
+        # Silence at the very beginning (pre-show countdown, intro) and the very
+        # end (outro, wrap-up) is a natural recording boundary — not an
+        # awkward mid-conversation pause.  Noise reduction can lower the noise
+        # floor enough to make these regions register as "true silence" even
+        # though they were previously masked by room tone.  Removing them
+        # chops off the recording head/tail and surprises the user.
+        if mutual_silence_regions:
+            one_window_s = window_ms / 1000.0
+            # Derive duration from the envelope length (already aligned in Step 1b)
+            # so the guard works regardless of whether the audio object exposes
+            # duration_seconds (test mocks may not).
+            audio_dur_s = len(host_db) * one_window_s
+
+            pre_guard_count = len(mutual_silence_regions)
+            mutual_silence_regions = [
+                (s, e) for s, e in mutual_silence_regions
+                if s >= one_window_s and (audio_dur_s - e) >= one_window_s
+            ]
+            skipped = pre_guard_count - len(mutual_silence_regions)
+            if skipped:
+                logger.info(
+                    "[DETECTOR] Skipped %d boundary pause(s) at head/tail of recording",
+                    skipped,
+                )
+
         # Step 5: Verify each region and remove only the portion beyond new_pause_duration
         verified_regions = []
         for start, end in mutual_silence_regions:
@@ -216,24 +242,54 @@ class CrossTalkDetector(BaseDetector):
         Double-check that detected region is truly mutual silence.
         Quality gate to prevent false positives.
 
-        Uses RMS-based dBFS (pydub AudioSegment.dBFS) — NOT max_dBFS (peak).
-        Reason: the envelope detector in Step 4 uses windowed RMS via
-        calculate_db_envelope(), so we must stay consistent here.
-        max_dBFS reflects the single loudest sample in the region; a brief
-        noise click in an otherwise silent 2-second pause would cause the
-        peak to far exceed the threshold and reject a perfectly valid pause.
-        RMS averages energy across the whole segment, matching the detection
-        philosophy and preventing false rejections.
+        Uses sub-window RMS checking: the segment is split into small windows
+        (200 ms each) and if ANY sub-window in EITHER track exceeds the
+        silence threshold, the region is rejected.  This catches brief speech
+        (e.g. "yeah", "mm-hmm") buried inside an otherwise-silent region that
+        would pass a whole-segment RMS check because the speech energy gets
+        averaged out across a long pause.
         """
-        # Extract segments (pydub uses milliseconds)
-        host_segment = host_audio[int(start*1000):int(end*1000)]
-        guest_segment = guest_audio[int(start*1000):int(end*1000)]
-        
-        # Use RMS-based dBFS, consistent with calculate_db_envelope() in detection
-        host_rms = host_segment.dBFS if len(host_segment) > 0 else -100
-        guest_rms = guest_segment.dBFS if len(guest_segment) > 0 else -100
-        
-        return (host_rms < threshold_db) and (guest_rms < threshold_db)
+        from utils.logger import get_logger
+        logger = get_logger(__name__)
+
+        # Sub-window size for verification (ms).  Smaller = more sensitive to
+        # brief speech within the pause.  200 ms catches single syllables
+        # without being so small that a single loud sample triggers rejection.
+        verify_window_ms = 200
+
+        start_ms = int(start * 1000)
+        end_ms = int(end * 1000)
+
+        host_segment = host_audio[start_ms:end_ms]
+        guest_segment = guest_audio[start_ms:end_ms]
+
+        seg_len_ms = len(host_segment)
+        if seg_len_ms == 0:
+            return False
+
+        # Walk through sub-windows; reject if ANY window has speech.
+        offset = 0
+        while offset < seg_len_ms:
+            win_end = min(offset + verify_window_ms, seg_len_ms)
+            h_win = host_segment[offset:win_end]
+            g_win = guest_segment[offset:win_end]
+
+            h_db = h_win.dBFS if len(h_win) > 0 else -100.0
+            g_db = g_win.dBFS if len(g_win) > 0 else -100.0
+
+            # If EITHER speaker is above the threshold in this window,
+            # someone is talking — this is NOT true mutual silence.
+            if h_db >= threshold_db or g_db >= threshold_db:
+                logger.debug(
+                    "Verify rejected pause %.2fs-%.2fs: sub-window at +%dms "
+                    "has host=%.1fdB / guest=%.1fdB (threshold=%.1fdB)",
+                    start, end, offset, h_db, g_db, threshold_db,
+                )
+                return False
+
+            offset = win_end
+
+        return True
     
     def get_name(self) -> str:
         return "cross_talk_detector"

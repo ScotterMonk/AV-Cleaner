@@ -3,6 +3,8 @@
 import inspect
 import time
 
+from analyzers import audio_denoiser
+
 from .interfaces import EditManifest
 from io_ import audio_extractor
 from io_ import video_renderer
@@ -114,6 +116,12 @@ class ProcessingPipeline:
         logger.info("[DETAIL] Extracting audio (host + guest)...")
         host_audio = audio_extractor.extract_audio(host_video_path)
         guest_audio = audio_extractor.extract_audio(guest_video_path)
+
+        if self.config.get("noise_reduction_host"):
+            host_audio = audio_denoiser.denoise_audio(host_audio, self.config, "Host")
+
+        if self.config.get("noise_reduction_guest"):
+            guest_audio = audio_denoiser.denoise_audio(guest_audio, self.config, "Guest")
          
         # 2. Run Detectors (Generate Detection Results)
         detection_results = {

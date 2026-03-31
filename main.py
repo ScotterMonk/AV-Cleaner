@@ -22,6 +22,7 @@ from detectors.filler_word_detector import FillerWordDetector
 from detectors.spike_fixer_detector import SpikeFixerDetector
 from io_.media_preflight import normalize_video_lengths
 from io_.media_probe import get_video_duration_seconds
+from processors.audio_denoiser_filter import AudioDenoiserFilter
 from processors.spike_fixer import SpikeFixer
 from processors.audio_normalizer import AudioNormalizer
 from processors.segment_remover import SegmentRemover
@@ -38,6 +39,7 @@ _active_progress_handler: logging.Handler | None = None
 _PROCESSOR_REGISTRY = {
     "SegmentRemover": SegmentRemover,
     "WordMuter":      WordMuter,
+    "AudioDenoiserFilter": AudioDenoiserFilter,
     "AudioNormalizer": AudioNormalizer,
     "SpikeFixer":     SpikeFixer,
 }

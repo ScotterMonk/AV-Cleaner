@@ -166,7 +166,7 @@ def run_with_progress(stream_spec, **kwargs):
         returncode = process.wait()
         if returncode != 0:
             logger.error(f"FFmpeg failed with return code {returncode}")
-            raise ffmpeg.Error("ffmpeg", returncode, cmd=cmd_args)
+            raise ffmpeg.Error(cmd_args, None, None)
 
         # Provide an explicit end/summary message (the old FFmpeg stderr stats line effectively did this).
         total_elapsed = time.time() - start_time

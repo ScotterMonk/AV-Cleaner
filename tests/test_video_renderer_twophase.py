@@ -21,7 +21,7 @@ def test_config_two_phase_keys():
     from config import QUALITY_PRESETS
 
     assert QUALITY_PRESETS['PODCAST_HIGH_QUALITY']['two_phase_render_enabled'] is True
-    assert QUALITY_PRESETS['PODCAST_HIGH_QUALITY']['keyframe_snap_tolerance_s'] == 0.3
+    assert QUALITY_PRESETS['PODCAST_HIGH_QUALITY']['keyframe_snap_tolerance_s'] == 0.1
 
 
 def test_config_video_phase_strategy_key():
