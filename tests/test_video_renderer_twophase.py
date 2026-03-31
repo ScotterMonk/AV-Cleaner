@@ -1174,9 +1174,11 @@ def _apply_common_twophase_mocks(monkeypatch, source_codec="h264"):
     monkeypatch.setattr(_vr, "select_enc_opts",
                         lambda cfg, caps: {"vcodec": "libx264", "acodec": "aac", "audio_bitrate": "192k"})
     monkeypatch.setattr(_tp, "probe_video_stream_codec", lambda p: source_codec)
-    # Stub probe_video_fps so its ffprobe subprocess call is not captured by the
-    # mux_cmds interceptor (which patches subprocess.run globally via _tp.subprocess).
+    # Stub probe_video_fps and probe_is_vfr so their ffprobe subprocess calls are
+    # not captured by the mux_cmds interceptor (which patches subprocess.run
+    # globally via _tp.subprocess).
     monkeypatch.setattr(_tp, "probe_video_fps", lambda p: None)
+    monkeypatch.setattr(_tp, "probe_is_vfr", lambda p: False)
 
     def _fake_duration(p):
         captured["duration_probes"].append(p)

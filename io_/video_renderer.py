@@ -102,6 +102,12 @@ def build_cpu_enc_opts(config):
         "crf": config.get("crf", 23),
         "acodec": config.get("audio_codec", "aac"),
         "audio_bitrate": config.get("audio_bitrate", "192k"),
+        # Preserve original frame timestamps (passthrough) to prevent
+        # progressive A/V drift when source video is VFR (variable frame
+        # rate).  Without this, FFmpeg defaults to -vsync cfr which
+        # duplicates/drops frames to force constant spacing, shifting
+        # video timing relative to audio.  Harmless for CFR sources.
+        "vsync": "passthrough",
     }
 
 
@@ -119,6 +125,8 @@ def build_nvenc_enc_opts(config):
         "rc": nvenc.get("rc", "vbr"),
         "acodec": config.get("audio_codec", "aac"),
         "audio_bitrate": config.get("audio_bitrate", "192k"),
+        # Preserve original frame timestamps — see build_cpu_enc_opts comment.
+        "vsync": "passthrough",
     }
 
     cq = nvenc.get("cq", 23)

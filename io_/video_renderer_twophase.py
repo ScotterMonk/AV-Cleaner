@@ -28,6 +28,7 @@ import ffmpeg
 
 from io_.media_probe import (
     get_video_duration_seconds,
+    probe_is_vfr,
     probe_video_fps,
     probe_video_keyframes,
     probe_video_stream_codec,
@@ -237,17 +238,21 @@ def render_video_smart_copy(
     )
 
 
+# Modified by gpt-5.4 | 2026-03-31
 def quantize_segments_to_frames(
     keep_segments: list,
-    fps: float,
+    fps: float | None,
 ) -> list:
     """Delegate to [`quantize_segments_to_frames()`](io_/video_renderer_strategies.py:524)."""
+    if not fps:
+        return keep_segments
     return video_renderer_strategies.quantize_segments_to_frames(keep_segments, fps)
 
 
+# Modified by gpt-5.4 | 2026-03-31
 def render_project_two_phase(
     host_path: str,
-    guest_path: str,
+    guest_path: str | None,
     manifest,
     out_host: str | None,
     out_guest: str | None,
@@ -269,6 +274,23 @@ def render_project_two_phase(
     def _render_track(src_path: str, filters: list, to_path: str, label: str = "") -> None:
         # Normalize empty keep_segments to full-duration span.
         segs = manifest.keep_segments or [(0.0, get_video_duration_seconds(src_path))]
+
+        # VFR diagnostic: log whether the source appears to be variable frame rate.
+        # The vsync=passthrough enc_opt protects against VFR drift regardless, but
+        # the log helps diagnose sync issues if they recur.
+        pfx_vfr = f"{label} " if label else ""
+        is_vfr = probe_is_vfr(src_path)
+        if is_vfr:
+            logger.warning(
+                "%sSource %s appears to be VFR (variable frame rate); "
+                "vsync=passthrough is active to preserve A/V sync.",
+                pfx_vfr, os.path.basename(src_path),
+            )
+        else:
+            logger.info(
+                "[DETAIL] %sSource %s appears to be CFR (constant frame rate).",
+                pfx_vfr, os.path.basename(src_path),
+            )
 
         # Quantize segment boundaries to video frame boundaries so audio (atrim,
         # sample-precise) and video (frame-quantized) phases use identical timestamps.
@@ -417,7 +439,7 @@ def render_project_two_phase(
         def _host_fn(to_path: str, _s=host_path, _f=manifest.host_filters) -> None:
             _render_track(_s, _f, to_path, label="Host")
         render_tasks.append(("Host", host_path, out_host, _host_fn))
-    if out_guest:
+    if out_guest and guest_path is not None:
         def _guest_fn(to_path: str, _s=guest_path, _f=manifest.guest_filters) -> None:
             _render_track(_s, _f, to_path, label="Guest")
         render_tasks.append(("Guest", guest_path, out_guest, _guest_fn))

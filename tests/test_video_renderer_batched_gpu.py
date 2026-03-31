@@ -117,6 +117,7 @@ def _patch_render_project_auto_dependencies(monkeypatch, batched_capture=None, s
     monkeypatch.setattr("utils.cpu_override.resolve_threads", lambda cfg: 2)
     monkeypatch.setattr(_tp, "probe_video_stream_codec", lambda path: source_codec)
     monkeypatch.setattr(_tp, "probe_video_fps", lambda path: None)
+    monkeypatch.setattr(_tp, "probe_is_vfr", lambda path: False)
     monkeypatch.setattr(_tp, "probe_video_keyframes", lambda path: captured["keyframe_probes"].append(path) or [0.0, 10.0])
     monkeypatch.setattr(_tp, "get_video_duration_seconds", lambda path: 10.0)
     monkeypatch.setattr(_tp, "_render_with_safe_overwrite", lambda src, dst, fn: fn(dst))

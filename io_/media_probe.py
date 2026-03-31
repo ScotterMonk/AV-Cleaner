@@ -231,3 +231,70 @@ def probe_video_fps(video_path: str) -> float | None:
         return float(raw)
     except ValueError:
         return None
+
+
+def _parse_frame_rate(raw: str) -> float | None:
+    """Parse an ffprobe rational frame rate string (e.g. ``"60/1"``) to float."""
+    raw = raw.strip()
+    if not raw:
+        return None
+    if "/" in raw:
+        try:
+            num_s, den_s = raw.split("/", 1)
+            den_f = float(den_s)
+            if den_f == 0:
+                return None
+            return float(num_s) / den_f
+        except (ValueError, ZeroDivisionError):
+            return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def probe_is_vfr(video_path: str) -> bool:
+    """Detect whether the first video stream is variable frame rate (VFR).
+
+    Compares ``r_frame_rate`` (container-declared base rate) with
+    ``avg_frame_rate`` (actual average over all frames).  A significant
+    discrepancy (> 1 %) between the two is a strong indicator of VFR
+    content — common with webcam, OBS, and Zoom recordings.
+
+    Returns ``True`` if VFR is detected, ``False`` otherwise (including
+    when the probe fails or data is unavailable).
+
+    Args:
+        video_path: Absolute or relative path to the video file.
+    """
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=r_frame_rate,avg_frame_rate",
+        "-of", "default=noprint_wrappers=1",
+        video_path,
+    ]
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except (FileNotFoundError, OSError):
+        return False
+
+    if proc.returncode != 0:
+        return False
+
+    r_fps: float | None = None
+    avg_fps: float | None = None
+    for line in (proc.stdout or "").splitlines():
+        line = line.strip()
+        if line.startswith("r_frame_rate="):
+            r_fps = _parse_frame_rate(line.split("=", 1)[1])
+        elif line.startswith("avg_frame_rate="):
+            avg_fps = _parse_frame_rate(line.split("=", 1)[1])
+
+    if r_fps is None or avg_fps is None or r_fps <= 0 or avg_fps <= 0:
+        return False
+
+    # If avg and declared rates differ by more than 1 %, treat as VFR.
+    return abs(r_fps - avg_fps) / max(r_fps, avg_fps) > 0.01

@@ -26,6 +26,8 @@ _VIDEO_KEY_MAP = {
     "crf": "-crf",
     "cq": "-cq",
     "rc": "-rc",
+    "vsync": "-vsync",
+    "threads": "-threads",
 }
 
 # Audio-only keys — must never appear in a video-phase command
