@@ -156,6 +156,7 @@ def build_pipeline_form(page, parent: tk.Frame) -> None:
         "cpu_limit_pct": tk.StringVar(value="80"),
         "cpu_rate_correction": tk.StringVar(value="0.90"),
         "gpu_limit_pct": tk.StringVar(value="100"),
+        "video_phase_strategy": tk.StringVar(value="auto"),
     }
 
     page._norm_mode = tk.StringVar(value="MATCH_HOST")
@@ -252,6 +253,8 @@ def render_pipeline_toggles(page, pipe_cfg: dict, qual_presets: dict, words_cfg:
     _gpu_pct_to_label = {100: "100% -> 5 workers", 60: "60% -> 3 workers", 20: "20% -> 1 worker"}
     _gpu_stored = int(preset.get("gpu_limit_pct", 100))
     page._qual_vars["gpu_limit_pct"].set(_gpu_pct_to_label.get(_gpu_stored, "100% -> 5 workers"))
+
+    page._qual_vars["video_phase_strategy"].set(str(preset.get("video_phase_strategy", "smart_copy")))
 
     cuda_enc = bool(preset.get("cuda_encode_enabled", False))
     page._enc_mode.set("gpu" if cuda_enc else "cpu")
@@ -476,6 +479,9 @@ def render_pipeline_toggles(page, pipe_cfg: dict, qual_presets: dict, words_cfg:
     # GPU worker cap: maps percentage to NVENC concurrent session count
     _GPU_LIMIT_OPTS = ["100% -> 5 workers", "60% -> 3 workers", "20% -> 1 worker"]
     mk_dropdown_row(render_sec, "GPU limit % (NVENC workers)", page._qual_vars["gpu_limit_pct"], _GPU_LIMIT_OPTS)
+
+    _VIDEO_PHASE_OPTS = ["auto", "smart_copy", "single_pass", "batched_gpu"]
+    mk_dropdown_row(render_sec, "Video phase strategy", page._qual_vars["video_phase_strategy"], _VIDEO_PHASE_OPTS)
 
     tk.Label(
         page._pipe_container,

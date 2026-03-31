@@ -273,6 +273,8 @@ class SettingsPage(tk.Frame):
             gpu_label = self._qual_vars["gpu_limit_pct"].get().strip()
             preset["gpu_limit_pct"] = _gpu_label_to_pct.get(gpu_label, 100)
 
+            preset["video_phase_strategy"] = self._qual_vars["video_phase_strategy"].get().strip() or "auto"
+
             # ---- Words to remove ----
             words_raw = self._word_vars["words_to_remove"].get().strip()
             words_cfg["words_to_remove"] = [w.strip() for w in words_raw.split(",") if w.strip()]

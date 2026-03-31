@@ -11,6 +11,7 @@
 import os
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Tuple
 
 import requests
@@ -23,6 +24,16 @@ logger = get_logger(__name__)
 
 # How long to wait between status-polling retries (seconds).
 _POLL_INTERVAL_SEC = 3
+
+# Maximum number of retries when a 429 rate-limit response is received.
+_RATE_LIMIT_MAX_RETRIES = 5
+
+# Default backoff when the API does not supply a Retry-After header (seconds).
+_RATE_LIMIT_DEFAULT_BACKOFF_SEC = 10
+
+# Stagger delay between parallel track submissions to reduce simultaneous
+# bursts against the API (seconds).  0 = no stagger.
+_PARALLEL_STAGGER_SEC = 1.0
 
 
 # Modified by gpt-5.4 | 2026-03-08
@@ -85,20 +96,38 @@ class FillerWordDetector(BaseDetector):
         headers = {"authorization": api_key}
         segments: List[Dict[str, Any]] = []
 
-        for label, audio, video_path in (
+        # Run host and guest transcription concurrently.  Both tracks are
+        # fully independent (separate temp files, separate API transcript IDs,
+        # separate output .txt files) so ThreadPoolExecutor is safe here.
+        # requests I/O releases the GIL, so true parallelism is achieved.
+        tracks = [
             ("host", host_audio, host_video_path),
             ("guest", guest_audio, guest_video_path),
-        ):
-            track_segments = self._process_track(
-                label, audio, target_words, base_url, headers, video_path
-            )
-            muted = [s for s in track_segments if s.get("action") == "mute"]
-            skipped = [s for s in track_segments if s.get("action") == "skipped"]
-            logger.info(
-                "[DETAIL] Filler words: %s track — %d found, %d muted, %d skipped",
-                label, len(track_segments), len(muted), len(skipped),
-            )
-            segments.extend(track_segments)
+        ]
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {}
+            for idx, (label, audio, video_path) in enumerate(tracks):
+                # Stagger submissions slightly to avoid hitting the API with
+                # two simultaneous upload requests at the exact same instant.
+                if idx > 0 and _PARALLEL_STAGGER_SEC > 0:
+                    time.sleep(_PARALLEL_STAGGER_SEC)
+                future = pool.submit(
+                    self._process_track,
+                    label, audio, target_words, base_url, headers, video_path,
+                )
+                futures[future] = label
+
+            for future in as_completed(futures):
+                label = futures[future]
+                track_segments = future.result()  # re-raises any unhandled exception
+                muted = [s for s in track_segments if s.get("action") == "mute"]
+                skipped = [s for s in track_segments if s.get("action") == "skipped"]
+                logger.info(
+                    "[DETAIL] Filler words: %s track — %d found, %d muted, %d skipped",
+                    label, len(track_segments), len(muted), len(skipped),
+                )
+                segments.extend(track_segments)
 
         return segments
 
@@ -156,19 +185,39 @@ class FillerWordDetector(BaseDetector):
         return temp_path
 
     def _upload_audio(self, file_path: str, base_url: str, headers: dict, label: str) -> str:
-        """Upload audio file to AssemblyAI; return the hosted audio URL."""
+        """Upload audio file to AssemblyAI; return the hosted audio URL.
+
+        Retries automatically on HTTP 429 (rate-limited) responses, honouring
+        any Retry-After header supplied by the server.
+        """
         logger.info("[DETAIL] Uploading %s audio to AssemblyAI...", label)
-        with open(file_path, "rb") as f:
-            response = requests.post(f"{base_url}/v2/upload", headers=headers, data=f)
+        for attempt in range(1, _RATE_LIMIT_MAX_RETRIES + 1):
+            with open(file_path, "rb") as f:
+                response = requests.post(f"{base_url}/v2/upload", headers=headers, data=f)
 
-        if response.status_code != 200:
-            raise RuntimeError(
-                f"Upload failed ({response.status_code}): {response.text}"
-            )
+            if response.status_code == 429:
+                wait = self._parse_retry_after(response, _RATE_LIMIT_DEFAULT_BACKOFF_SEC)
+                logger.warning(
+                    "[FillerWordDetector] %s upload rate-limited (429); "
+                    "waiting %.0fs before retry %d/%d.",
+                    label, wait, attempt, _RATE_LIMIT_MAX_RETRIES,
+                )
+                time.sleep(wait)
+                continue
 
-        audio_url = response.json()["upload_url"]
-        logger.debug("[FillerWordDetector] %s upload URL: %s", label, audio_url)
-        return audio_url
+            if response.status_code != 200:
+                raise RuntimeError(
+                    f"Upload failed ({response.status_code}): {response.text}"
+                )
+
+            audio_url = response.json()["upload_url"]
+            logger.debug("[FillerWordDetector] %s upload URL: %s", label, audio_url)
+            return audio_url
+
+        raise RuntimeError(
+            f"[FillerWordDetector] {label} upload still rate-limited after "
+            f"{_RATE_LIMIT_MAX_RETRIES} retries; aborting."
+        )
 
     def _transcribe(
         self, audio_url: str, base_url: str, headers: dict, label: str
@@ -176,6 +225,9 @@ class FillerWordDetector(BaseDetector):
         """
         Submit a transcript request and poll until completion.
         Returns the raw word-level list from the API response.
+
+        Handles HTTP 429 rate-limit responses on both the initial POST and
+        each polling GET, honouring Retry-After headers when present.
         """
         payload = {
             "audio_url": audio_url,
@@ -186,18 +238,51 @@ class FillerWordDetector(BaseDetector):
             # in the word-level results instead of being silently stripped.
             "disfluencies": True,
         }
-        response = requests.post(f"{base_url}/v2/transcript", headers=headers, json=payload)
-        if response.status_code != 200:
+
+        # Submit transcript request — retry on 429.
+        for attempt in range(1, _RATE_LIMIT_MAX_RETRIES + 1):
+            response = requests.post(
+                f"{base_url}/v2/transcript", headers=headers, json=payload
+            )
+            if response.status_code == 429:
+                wait = self._parse_retry_after(response, _RATE_LIMIT_DEFAULT_BACKOFF_SEC)
+                logger.warning(
+                    "[FillerWordDetector] %s transcript submit rate-limited (429); "
+                    "waiting %.0fs before retry %d/%d.",
+                    label, wait, attempt, _RATE_LIMIT_MAX_RETRIES,
+                )
+                time.sleep(wait)
+                continue
+            if response.status_code != 200:
+                raise RuntimeError(
+                    f"Transcript request failed ({response.status_code}): {response.text}"
+                )
+            break
+        else:
             raise RuntimeError(
-                f"Transcript request failed ({response.status_code}): {response.text}"
+                f"[FillerWordDetector] {label} transcript submit still rate-limited after "
+                f"{_RATE_LIMIT_MAX_RETRIES} retries; aborting."
             )
 
         transcript_id = response.json()["id"]
         poll_url = f"{base_url}/v2/transcript/{transcript_id}"
-        logger.info("[FillerWordDetector] Polling transcript %s for %s track...", transcript_id, label)
+        logger.info(
+            "[FillerWordDetector] Polling transcript %s for %s track...", transcript_id, label
+        )
 
+        # Poll until completed or error — handle 429 on poll responses too.
         while True:
             poll_response = requests.get(poll_url, headers=headers)
+
+            if poll_response.status_code == 429:
+                wait = self._parse_retry_after(poll_response, _RATE_LIMIT_DEFAULT_BACKOFF_SEC)
+                logger.warning(
+                    "[FillerWordDetector] %s poll rate-limited (429); waiting %.0fs...",
+                    label, wait,
+                )
+                time.sleep(wait)
+                continue
+
             transcript = poll_response.json()
             status = transcript.get("status")
 
@@ -216,8 +301,33 @@ class FillerWordDetector(BaseDetector):
                 )
 
             # Still processing -- wait and retry
-            logger.debug("[FillerWordDetector] %s status=%s, retrying in %ds...", label, status, _POLL_INTERVAL_SEC)
+            logger.debug(
+                "[FillerWordDetector] %s status=%s, retrying in %ds...",
+                label, status, _POLL_INTERVAL_SEC,
+            )
             time.sleep(_POLL_INTERVAL_SEC)
+
+    @staticmethod
+    def _parse_retry_after(response, default_sec: float) -> float:
+        """Extract the Retry-After wait time from a 429 response.
+
+        The header value may be an integer number of seconds or an HTTP-date
+        string.  Falls back to *default_sec* if absent or unparseable.
+        """
+        header = response.headers.get("Retry-After", "")
+        if header:
+            try:
+                return max(float(header), 1.0)
+            except ValueError:
+                # Could be an HTTP-date; compute delta from now.
+                import email.utils
+                try:
+                    retry_time = email.utils.parsedate_to_datetime(header)
+                    delta = (retry_time - __import__("datetime").datetime.now(retry_time.tzinfo)).total_seconds()
+                    return max(delta, 1.0)
+                except Exception:
+                    pass
+        return default_sec
 
     def _save_filler_words(
         self, matches: List[Dict[str, Any]], label: str, video_path: str

@@ -24,6 +24,13 @@ def test_config_two_phase_keys():
     assert QUALITY_PRESETS['PODCAST_HIGH_QUALITY']['keyframe_snap_tolerance_s'] == 0.3
 
 
+def test_config_video_phase_strategy_key():
+    """High-quality preset defaults the video phase strategy to auto."""
+    from config import QUALITY_PRESETS
+
+    assert QUALITY_PRESETS['PODCAST_HIGH_QUALITY']['video_phase_strategy'] == 'auto'
+
+
 # ---------------------------------------------------------------------------
 # probe_video_keyframes — happy path
 # ---------------------------------------------------------------------------
@@ -437,6 +444,208 @@ def test_render_audio_phase_no_segments():
 
 
 # ---------------------------------------------------------------------------
+# render_video_single_pass — helper routing and CUDA decode input kwargs
+# ---------------------------------------------------------------------------
+
+def test_render_video_single_pass_calls_filter_chain(monkeypatch):
+    """Single-pass helper merges segments, builds the filter chain, and runs ffmpeg output."""
+    from io_ import video_renderer_twophase as _tp
+
+    calls: dict = {}
+    filters = [_FakeFilter("alimiter", {"limit": 1.0})]
+    keep_segments = [(0.0, 1.0), (1.02, 2.0)]
+    merged_segments = [(0.0, 2.0)]
+    enc_opts = {"vcodec": "libx264", "crf": 18}
+
+    def _fake_merge_close_segments(segs):
+        calls["merge_close_segments"] = list(segs)
+        return list(merged_segments)
+
+    def _fake_build_filter_chain(input_path, routed_filters, segs, input_kwargs, cut_fade_s=0.0):
+        calls["build_filter_chain"] = {
+            "input_path": input_path,
+            "filters": routed_filters,
+            "segs": list(segs),
+            "input_kwargs": dict(input_kwargs),
+            "cut_fade_s": cut_fade_s,
+        }
+        return ("fake_v", "fake_a")
+
+    def _fake_output(v_stream, a_stream, out_path, **kwargs):
+        calls["ffmpeg_output"] = {
+            "v_stream": v_stream,
+            "a_stream": a_stream,
+            "out_path": out_path,
+            "kwargs": dict(kwargs),
+        }
+        return "fake_stream"
+
+    def _fake_run_with_progress(stream, **kwargs):
+        calls["run_with_progress"] = {"stream": stream, "kwargs": dict(kwargs)}
+
+    monkeypatch.setattr(_tp, "merge_close_segments", _fake_merge_close_segments)
+    monkeypatch.setattr(_tp, "_build_filter_chain", _fake_build_filter_chain)
+    monkeypatch.setattr(_tp.ffmpeg, "output", _fake_output)
+    monkeypatch.setattr(_tp, "run_with_progress", _fake_run_with_progress)
+
+    _tp.render_video_single_pass(
+        input_path="host.mp4",
+        filters=filters,
+        keep_segments=keep_segments,
+        out_path="host_out.mp4",
+        enc_opts=enc_opts,
+        config={"cut_fade_ms": 16},
+    )
+
+    assert "build_input_kwargs" not in calls, "CUDA decode kwargs should not be built unless enabled"
+    assert calls["merge_close_segments"] == keep_segments
+    assert calls["build_filter_chain"] == {
+        "input_path": "host.mp4",
+        "filters": filters,
+        "segs": merged_segments,
+        "input_kwargs": {},
+        "cut_fade_s": 0.016,
+    }
+    assert calls["ffmpeg_output"] == {
+        "v_stream": "fake_v",
+        "a_stream": "fake_a",
+        "out_path": "host_out.mp4",
+        "kwargs": enc_opts,
+    }
+    assert calls["run_with_progress"] == {
+        "stream": "fake_stream",
+        "kwargs": {"overwrite_output": True},
+    }
+
+
+def test_render_video_single_pass_cuda_decode_routes_input_kwargs(monkeypatch):
+    """Single-pass must ignore CUDA decode config and use CPU-side filter input kwargs."""
+    from io_ import video_renderer_twophase as _tp
+
+    calls: dict = {}
+    config = {"cuda_decode_enabled": True, "cut_fade_ms": 24}
+
+    def _fake_build_filter_chain(input_path, filters, segs, routed_input_kwargs, cut_fade_s=0.0):
+        calls["build_filter_chain"] = {
+            "input_path": input_path,
+            "filters": list(filters),
+            "segs": list(segs),
+            "input_kwargs": dict(routed_input_kwargs),
+            "cut_fade_s": cut_fade_s,
+        }
+        return ("gpu_v", "gpu_a")
+
+    monkeypatch.setattr(_tp, "merge_close_segments", lambda segs: list(segs))
+    monkeypatch.setattr(_tp, "_build_filter_chain", _fake_build_filter_chain)
+    monkeypatch.setattr(_tp.ffmpeg, "output", lambda *args, **kwargs: "gpu_stream")
+    monkeypatch.setattr(_tp, "run_with_progress", lambda stream, **kwargs: calls.__setitem__(
+        "run_with_progress", {"stream": stream, "kwargs": dict(kwargs)}
+    ))
+
+    _tp.render_video_single_pass(
+        input_path="guest.mp4",
+        filters=[],
+        keep_segments=[(0.0, 5.0)],
+        out_path="guest_out.mp4",
+        enc_opts={"vcodec": "h264_nvenc", "cq": 18},
+        config=config,
+    )
+
+    assert calls["build_filter_chain"] == {
+        "input_path": "guest.mp4",
+        "filters": [],
+        "segs": [(0.0, 5.0)],
+        "input_kwargs": {},
+        "cut_fade_s": 0.024,
+    }
+    assert calls["run_with_progress"] == {
+        "stream": "gpu_stream",
+        "kwargs": {"overwrite_output": True},
+    }
+
+
+def test_render_video_batched_gpu_cuda_decode_routes_input_kwargs(monkeypatch, tmp_path):
+    """batched_gpu must forward CUDA decode kwargs into each batch when enabled."""
+    import ffmpeg
+    import io_.video_renderer as _vr
+    import io_.video_renderer_progress as _vr_progress
+    from io_ import video_renderer_strategies as _strategies
+
+    calls: dict = {"filter_chain": []}
+    caps = {"ffmpeg_ok": True, "encoders": frozenset(), "hwaccels": frozenset({"cuda"})}
+    input_kwargs = {"hwaccel": "cuda", "hwaccel_output_format": "cuda"}
+
+    monkeypatch.setattr(_strategies, "merge_close_segments", lambda segs: list(segs))
+    monkeypatch.setattr(_strategies.os, "close", lambda fd: None)
+    monkeypatch.setattr(_strategies.os, "remove", lambda path: None)
+    monkeypatch.setattr(_strategies, "gpu_workers_from_pct", lambda pct: 1)
+
+    def _fake_mkstemp(prefix, suffix, dir):
+        if suffix == ".txt":
+            return (99, str(tmp_path / "concat_batch_00.txt"))
+        return (99, str(tmp_path / ".batch00.mp4"))
+
+    monkeypatch.setattr(_strategies.tempfile, "mkstemp", _fake_mkstemp)
+
+    monkeypatch.setattr(_vr, "probe_ffmpeg_capabilities", lambda: caps)
+    monkeypatch.setattr(_vr, "build_input_kwargs", lambda cfg, routed_caps: calls.__setitem__(
+        "build_input_kwargs", {"cfg": dict(cfg), "caps": routed_caps}
+    ) or dict(input_kwargs))
+
+    def _fake_build_filter_chain(input_path, filters, segs, routed_input_kwargs, cut_fade_s=0.0):
+        calls["filter_chain"].append(
+            {
+                "input_path": input_path,
+                "filters": list(filters),
+                "segs": list(segs),
+                "input_kwargs": dict(routed_input_kwargs),
+                "cut_fade_s": cut_fade_s,
+            }
+        )
+        return ("batch_v", "batch_a")
+
+    monkeypatch.setattr(_vr, "_build_filter_chain", _fake_build_filter_chain)
+    monkeypatch.setattr(ffmpeg, "output", lambda *args, **kwargs: "batch_stream")
+    monkeypatch.setattr(
+        _vr_progress,
+        "run_with_progress",
+        lambda stream, **kwargs: calls.__setitem__("run_with_progress", {"stream": stream, "kwargs": dict(kwargs)}),
+    )
+
+    def _fake_subprocess_run(*args, **kwargs):
+        calls["concat_run"] = {"args": list(args[0]), "kwargs": dict(kwargs)}
+        return _strategies.subprocess.CompletedProcess(args=args[0], returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(_strategies.subprocess, "run", _fake_subprocess_run)
+
+    _strategies.render_video_batched_gpu(
+        input_path="guest.mp4",
+        filters=["eq=contrast=1.1"],
+        keep_segments=[(0.0, 2.0)],
+        out_path=str(tmp_path / "guest_out.mp4"),
+        enc_opts={"vcodec": "h264_nvenc", "cq": 18},
+        config={"cuda_decode_enabled": True, "cut_fade_ms": 20, "gpu_limit_pct": 20},
+        num_batches=1,
+    )
+
+    assert calls["build_input_kwargs"] == {"cfg": {"cuda_decode_enabled": True, "cut_fade_ms": 20, "gpu_limit_pct": 20}, "caps": caps}
+    assert calls["filter_chain"] == [
+        {
+            "input_path": "guest.mp4",
+            "filters": ["eq=contrast=1.1"],
+            "segs": [(0.0, 2.0)],
+            "input_kwargs": input_kwargs,
+            "cut_fade_s": 0.02,
+        }
+    ]
+    assert calls["run_with_progress"] == {
+        "stream": "batch_stream",
+        "kwargs": {"overwrite_output": True},
+    }
+    assert calls["concat_run"]["args"][-2:] == ["copy", str(tmp_path / "guest_out.mp4")]
+
+
+# ---------------------------------------------------------------------------
 # render_video_segment_copy -- correct command shape
 # ---------------------------------------------------------------------------
 
@@ -759,7 +968,7 @@ def test_render_video_smart_copy_concat_list_order(tmp_path, monkeypatch):
         # File already created by mkstemp; nothing extra needed.
         pass
 
-    def _fake_bridge(input_path, kf_before, start, end, out_path, enc_opts, cuda_decode_enabled=False):
+    def _fake_bridge(input_path, kf_before, start, end, out_path, enc_opts):
         pass
 
     def _fake_subprocess_run(cmd, capture_output, text):
@@ -983,7 +1192,7 @@ def _apply_common_twophase_mocks(monkeypatch, source_codec="h264"):
         captured["audio_phase"].append({"src": src, "filters": filters, "segs": segs})
     monkeypatch.setattr(_tp, "render_audio_phase", _fake_audio_phase)
 
-    def _fake_smart_copy(src, segs, kfs, out, enc_opts, snap, label="", cuda_decode_enabled=False, gpu_limit_pct=100):
+    def _fake_smart_copy(src, segs, kfs, out, enc_opts, snap, label="", gpu_limit_pct=100):
         captured["smart_copy"].append({"src": src, "segs": segs, "kfs": kfs})
     monkeypatch.setattr(_tp, "render_video_smart_copy", _fake_smart_copy)
 
@@ -1151,27 +1360,104 @@ def test_render_project_two_phase_empty_segments_use_full_duration(monkeypatch, 
 
 
 def test_render_project_two_phase_falls_back_for_non_h264_source(monkeypatch, tmp_path):
-    """Non-h264 codec falls back to single-pass; audio/keyframe/smart-copy/mux not called."""
+    """Non-h264 codec uses single-pass video phase, then muxes with audio phase."""
     from io_ import video_renderer_twophase as _tp
 
     captured = _apply_common_twophase_mocks(monkeypatch, source_codec="hevc")
 
-    single_pass_ran: list = []
-    monkeypatch.setattr(_tp, "_build_filter_chain", lambda *a, **kw: ("fake_v", "fake_a"))
-    monkeypatch.setattr(_tp.ffmpeg, "output", lambda *a, **kw: "fake_stream")
-    monkeypatch.setattr(_tp, "run_with_progress",
-                        lambda stream, **kw: single_pass_ran.append(stream))
+    single_pass_calls: list = []
+
+    def _fake_single_pass(src, filters, segs, out, enc_opts, cfg):
+        single_pass_calls.append(
+            {
+                "src": src,
+                "filters": filters,
+                "segs": segs,
+                "out": out,
+                "enc_opts": dict(enc_opts),
+                "cfg": cfg,
+            }
+        )
+
+    monkeypatch.setattr(_tp, "render_video_single_pass", _fake_single_pass)
 
     manifest = _ManifestTP(keep_segments=[(0.0, 5.0)], host_filters=[], guest_filters=[])
 
     _tp.render_project_two_phase("host.mp4", "guest.mp4", manifest,
                                   str(tmp_path / "host.mp4"), None, config=None)
 
-    assert single_pass_ran, "Expected single-pass run_with_progress called for non-h264"
-    assert not captured["audio_phase"], "render_audio_phase must NOT be called for non-h264"
+    assert len(single_pass_calls) == 1, "Expected single-pass video phase called for non-h264"
+    assert len(captured["audio_phase"]) == 1, "render_audio_phase should still run for non-h264"
     assert not captured["keyframe_probes"], "probe_video_keyframes must NOT be called for non-h264"
     assert not captured["smart_copy"], "render_video_smart_copy must NOT be called for non-h264"
-    assert not captured["mux_cmds"], "mux subprocess must NOT be called for non-h264"
+    assert len(captured["mux_cmds"]) == 1, "Mux should still run after single-pass video phase"
+
+
+def test_render_track_routes_single_pass_strategy(monkeypatch, tmp_path):
+    """Configured single-pass strategy routes the track through single-pass video rendering."""
+    from io_ import video_renderer_twophase as _tp
+
+    captured = _apply_common_twophase_mocks(monkeypatch, source_codec="h264")
+
+    single_pass_calls: list = []
+
+    def _fake_single_pass(src, filters, segs, out, enc_opts, cfg):
+        single_pass_calls.append(
+            {
+                "src": src,
+                "filters": filters,
+                "segs": segs,
+                "out": out,
+                "enc_opts": dict(enc_opts),
+                "cfg": cfg,
+            }
+        )
+
+    monkeypatch.setattr(_tp, "render_video_single_pass", _fake_single_pass)
+
+    manifest = _ManifestTP(keep_segments=[(0.0, 5.0)], host_filters=[], guest_filters=[])
+    config = {"video_phase_strategy": "single_pass"}
+
+    _tp.render_project_two_phase("host.mp4", "guest.mp4", manifest,
+                                  str(tmp_path / "host.mp4"), None, config=config)
+
+    assert len(single_pass_calls) == 1, "Expected single-pass video phase called once"
+    assert single_pass_calls[0]["cfg"] is config, "Expected original config routed to single-pass helper"
+    assert len(captured["audio_phase"]) == 1, "Audio phase should still run for single_pass strategy"
+    assert not captured["keyframe_probes"], "probe_video_keyframes must NOT be called for single_pass strategy"
+    assert not captured["smart_copy"], "render_video_smart_copy must NOT be called for single_pass strategy"
+    assert len(captured["mux_cmds"]) == 1, "Mux should still run after single-pass video phase"
+
+
+def test_render_track_routes_smart_copy_default(monkeypatch, tmp_path):
+    """Default routing for h264 sources stays on the smart-copy branch."""
+    from io_ import video_renderer_twophase as _tp
+
+    captured = _apply_common_twophase_mocks(monkeypatch, source_codec="h264")
+
+    single_pass_calls: list = []
+
+    def _fake_single_pass(*args, **kwargs):
+        single_pass_calls.append({"args": args, "kwargs": kwargs})
+
+    monkeypatch.setattr(_tp, "render_video_single_pass", _fake_single_pass)
+
+    manifest = _ManifestTP(keep_segments=[(0.0, 5.0)], host_filters=[], guest_filters=[])
+
+    _tp.render_project_two_phase(
+        "host.mp4",
+        "guest.mp4",
+        manifest,
+        str(tmp_path / "host.mp4"),
+        None,
+        config={},
+    )
+
+    assert len(captured["audio_phase"]) == 1, "Audio phase should still run on the default smart-copy route"
+    assert captured["keyframe_probes"] == ["host.mp4"], "Expected keyframe probing on the rendered track"
+    assert len(captured["smart_copy"]) == 1, "Expected smart-copy video render on the default route"
+    assert not single_pass_calls, "Single-pass helper must not be called on the default smart-copy route"
+    assert len(captured["mux_cmds"]) == 1, "Mux should still run after smart-copy video phase"
 
 
 def test_render_project_two_phase_dispatches_when_enabled(monkeypatch, tmp_path):
