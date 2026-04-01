@@ -48,7 +48,7 @@ def test_denoise_audio_stereo_uses_channel_first_for_noisereduce(monkeypatch) ->
         audio,
         {
             "noise_reduction_stationary": True,
-            "noise_reduction_prop_decrease": 0.75,
+            "noise_reduct_decrease_host": 0.75,
         },
         "Host",
     )

@@ -60,14 +60,31 @@ _MIN_SAMPLES_FOR_DENOISE = 1024
 
 
 def denoise_audio(audio: AudioSegment, config: dict, label: str = "Track") -> AudioSegment:
-    """Apply optional noise reduction while preserving sample count."""
+    """Apply optional noise reduction while preserving sample count.
+
+    ``label`` is used both for log messages and to select the per-track
+    aggressiveness key.  Pass "Host" for the host track and "Guest" for the
+    guest track so the correct config key is read.
+    """
     if not HAS_NOISEREDUCE:
         return audio
 
     assert nr is not None
 
     stationary = config.get("noise_reduction_stationary", True)
-    prop_decrease = config.get("noise_reduction_prop_decrease", 1.0)
+    # Select per-track prop_decrease key; fall back to legacy key then to 1.0.
+    if label.lower() == "host":
+        prop_decrease = config.get(
+            "noise_reduct_decrease_host",
+            config.get("noise_reduction_prop_decrease", 1.0),
+        )
+    elif label.lower() == "guest":
+        prop_decrease = config.get(
+            "noise_reduct_decrease_guest",
+            config.get("noise_reduction_prop_decrease", 1.0),
+        )
+    else:
+        prop_decrease = config.get("noise_reduction_prop_decrease", 1.0)
     start_time = time.time()
 
     samples = _audio_to_float_samples(audio)

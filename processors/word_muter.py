@@ -101,10 +101,18 @@ class WordMuter(BaseProcessor):
     def _word_mute_add(self, manifest: EditManifest, detail: dict) -> None:
         """Add a single-track FFmpeg volume=0 filter for one filler-word span.
 
-        Applies a pause-aware inset: if the gap between the filler word and an
-        adjacent word is below filler_mute_gap_threshold_ms, the mute window is
-        shrunk inward on that side by filler_mute_inset_ms to avoid silencing the
-        edge phonemes of the neighbouring word (slurred/mushed speech).
+        Step 1 — Slurred-inset: if the gap between the filler word and an adjacent
+        word is below filler_mute_gap_threshold_ms the mute window is shrunk inward
+        on that side by filler_mute_inset_ms to avoid silencing edge phonemes of
+        the neighbouring word.
+
+        Step 2 — Offset expansion: after the inset is applied the window is then
+        expanded left by filler_mute_offset_left_ms and right by
+        filler_mute_offset_right_ms so that any audible onset/tail of the filler
+        that falls just outside the detected boundary is also silenced.
+
+        These are audio-only volume=0 filters; they do not alter the timeline,
+        so per-track and cross-track sync is preserved.
         """
         start_s = float(detail["start_sec"])
         end_s = float(detail["end_sec"])
@@ -114,10 +122,16 @@ class WordMuter(BaseProcessor):
         threshold_ms = float(WORDS_TO_REMOVE.get("filler_mute_gap_threshold_ms", 60))
         inset_s = inset_ms / 1000.0
 
+        # Read offset config (ms -> seconds).
+        offset_left_ms = float(WORDS_TO_REMOVE.get("filler_mute_offset_left_ms", 5))
+        offset_right_ms = float(WORDS_TO_REMOVE.get("filler_mute_offset_right_ms", 0))
+        offset_left_s = offset_left_ms / 1000.0
+        offset_right_s = offset_right_ms / 1000.0
+
         prev_gap_ms = detail.get("prev_gap_ms")
         next_gap_ms = detail.get("next_gap_ms")
 
-        # Inset start when preceding word is slurred into the filler.
+        # Step 1: Inset start when preceding word is slurred into the filler.
         if prev_gap_ms is not None and prev_gap_ms < threshold_ms:
             start_s += inset_s
             logger.debug(
@@ -125,7 +139,7 @@ class WordMuter(BaseProcessor):
                 prev_gap_ms, threshold_ms, inset_ms,
             )
 
-        # Inset end when following word is slurred out of the filler.
+        # Step 1: Inset end when following word is slurred out of the filler.
         if next_gap_ms is not None and next_gap_ms < threshold_ms:
             end_s -= inset_s
             logger.debug(
@@ -142,6 +156,22 @@ class WordMuter(BaseProcessor):
             )
             start_s = float(detail["start_sec"])
             end_s = float(detail["end_sec"])
+
+        # Step 2: Expand the mute window by the configured offsets (applied AFTER
+        # the inset guard so the offset never causes a double-shrink scenario).
+        # Clamp start to 0 to avoid negative timestamps.
+        if offset_left_s > 0:
+            start_s = max(0.0, start_s - offset_left_s)
+            logger.debug(
+                "[WordMuter] Offset left: expanding start by -%.0fms -> %.3fs",
+                offset_left_ms, start_s,
+            )
+        if offset_right_s > 0:
+            end_s += offset_right_s
+            logger.debug(
+                "[WordMuter] Offset right: expanding end by +%.0fms -> %.3fs",
+                offset_right_ms, end_s,
+            )
 
         enable_expr = f"between(t,{start_s:.3f},{end_s:.3f})"
         track = str(detail.get("track") or "").lower()

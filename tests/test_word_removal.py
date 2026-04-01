@@ -145,6 +145,9 @@ class TestWordMuter:
         """Dict-format words produce volume=0 filters; keep_segments NOT modified."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
+        from config import WORDS_TO_REMOVE
+        offset_left_s = WORDS_TO_REMOVE.get("filler_mute_offset_left_ms", 5) / 1000.0
+        offset_right_s = WORDS_TO_REMOVE.get("filler_mute_offset_right_ms", 0) / 1000.0
         processor = WordMuter({})
         manifest = processor.process(
             EditManifest(), _mock_audio(10.0), _mock_audio(10.0),
@@ -156,9 +159,13 @@ class TestWordMuter:
         assert manifest.keep_segments == []  # WordMuter never touches keep_segments
         assert len(manifest.host_filters) == 1
         assert manifest.host_filters[0].filter_name == "volume"
-        assert manifest.host_filters[0].params == {"volume": 0, "enable": "between(t,1.000,1.500)"}
+        host_start = max(0.0, 1.0 - offset_left_s)
+        host_end = 1.5 + offset_right_s
+        assert manifest.host_filters[0].params == {"volume": 0, "enable": f"between(t,{host_start:.3f},{host_end:.3f})"}
         assert len(manifest.guest_filters) == 1
-        assert manifest.guest_filters[0].params == {"volume": 0, "enable": "between(t,6.000,6.400)"}
+        guest_start = max(0.0, 6.0 - offset_left_s)
+        guest_end = 6.4 + offset_right_s
+        assert manifest.guest_filters[0].params == {"volume": 0, "enable": f"between(t,{guest_start:.3f},{guest_end:.3f})"}
 
     def test_no_detections_leaves_manifest_unchanged(self):
         from core.interfaces import EditManifest
@@ -215,6 +222,9 @@ class TestWordMuter:
         """No _AudioWithDb needed — just assert host volume=0 filter added."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
+        from config import WORDS_TO_REMOVE
+        offset_left_s = WORDS_TO_REMOVE.get("filler_mute_offset_left_ms", 5) / 1000.0
+        offset_right_s = WORDS_TO_REMOVE.get("filler_mute_offset_right_ms", 0) / 1000.0
         processor = WordMuter({})
         manifest = processor.process(
             EditManifest(), _mock_audio(10.0), _mock_audio(10.0),
@@ -222,14 +232,19 @@ class TestWordMuter:
                 {"track": "host", "text": "um", "start_sec": 2.0, "end_sec": 2.3, "confidence": 1.0},
             ]},
         )
+        start_s = max(0.0, 2.0 - offset_left_s)
+        end_s = 2.3 + offset_right_s
         assert [f.filter_name for f in manifest.host_filters] == ["volume"]
-        assert manifest.host_filters[0].params == {"volume": 0, "enable": "between(t,2.000,2.300)"}
+        assert manifest.host_filters[0].params == {"volume": 0, "enable": f"between(t,{start_s:.3f},{end_s:.3f})"}
         assert manifest.word_mutes == [(2.0, 2.3)]
 
     def test_word_on_guest_mutes(self):
         """Guest word produces mute filter (NOT a cut); keep_segments unchanged."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
+        from config import WORDS_TO_REMOVE
+        offset_left_s = WORDS_TO_REMOVE.get("filler_mute_offset_left_ms", 5) / 1000.0
+        offset_right_s = WORDS_TO_REMOVE.get("filler_mute_offset_right_ms", 0) / 1000.0
         processor = WordMuter({})
         manifest = processor.process(
             EditManifest(), _mock_audio(10.0), _mock_audio(10.0),
@@ -237,6 +252,8 @@ class TestWordMuter:
                 {"track": "guest", "text": "um", "start_sec": 2.0, "end_sec": 2.3, "confidence": 0.95},
             ]},
         )
+        start_s = max(0.0, 2.0 - offset_left_s)
+        end_s = 2.3 + offset_right_s
         assert manifest.keep_segments == []  # no cut
         assert [f.filter_name for f in manifest.guest_filters] == ["volume"]
         assert manifest.word_mutes == [(2.0, 2.3)]
@@ -589,9 +606,12 @@ class TestWordMuterSlurInset:
         }
 
     def test_no_inset_without_gap_data(self):
-        """Segments with no gap keys use the exact detected timestamps (legacy path)."""
+        """No gap keys -> no inset; offset_left still expands start left."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
+        from config import WORDS_TO_REMOVE
+        offset_left_s = WORDS_TO_REMOVE.get("filler_mute_offset_left_ms", 5) / 1000.0
+        offset_right_s = WORDS_TO_REMOVE.get("filler_mute_offset_right_ms", 0) / 1000.0
         processor = WordMuter({})
         manifest = processor.process(
             EditManifest(), _mock_audio(10.0), _mock_audio(10.0),
@@ -600,69 +620,100 @@ class TestWordMuterSlurInset:
                  "confidence": 1.0, "action": "mute"},
             ]},
         )
-        assert manifest.host_filters[0].params["enable"] == "between(t,2.000,2.300)"
+        start_s = max(0.0, 2.0 - offset_left_s)
+        end_s = 2.3 + offset_right_s
+        assert manifest.host_filters[0].params["enable"] == f"between(t,{start_s:.3f},{end_s:.3f})"
 
     def test_end_inset_when_next_gap_small(self):
-        """next_gap_ms below threshold -> end shrinks inward by inset_ms."""
+        """next_gap_ms below threshold -> end shrinks inward by inset_ms; offset_left expands start."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
         from config import WORDS_TO_REMOVE
         inset_s = WORDS_TO_REMOVE.get("filler_mute_inset_ms", 30) / 1000.0
+        offset_left_s = WORDS_TO_REMOVE.get("filler_mute_offset_left_ms", 5) / 1000.0
+        offset_right_s = WORDS_TO_REMOVE.get("filler_mute_offset_right_ms", 0) / 1000.0
         processor = WordMuter({})
         manifest = processor.process(
             EditManifest(), _mock_audio(10.0), _mock_audio(10.0),
             {"filler_word_detector": [self._segment(2.0, 2.3, prev_gap=200, next_gap=0)]},
         )
-        expected = f"between(t,2.000,{2.3 - inset_s:.3f})"
+        # prev_gap=200 -> no start inset; next_gap=0 -> end inset applied
+        start_s = max(0.0, 2.0 - offset_left_s)
+        end_s = (2.3 - inset_s) + offset_right_s
+        expected = f"between(t,{start_s:.3f},{end_s:.3f})"
         assert manifest.host_filters[0].params["enable"] == expected
 
     def test_start_inset_when_prev_gap_small(self):
-        """prev_gap_ms below threshold -> start shrinks inward by inset_ms."""
+        """prev_gap_ms below threshold -> start shrinks inward by inset_ms; then offset_left still expands."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
         from config import WORDS_TO_REMOVE
         inset_s = WORDS_TO_REMOVE.get("filler_mute_inset_ms", 30) / 1000.0
+        offset_left_s = WORDS_TO_REMOVE.get("filler_mute_offset_left_ms", 5) / 1000.0
+        offset_right_s = WORDS_TO_REMOVE.get("filler_mute_offset_right_ms", 0) / 1000.0
         processor = WordMuter({})
         manifest = processor.process(
             EditManifest(), _mock_audio(10.0), _mock_audio(10.0),
             {"filler_word_detector": [self._segment(2.0, 2.5, prev_gap=10, next_gap=200)]},
         )
-        expected = f"between(t,{2.0 + inset_s:.3f},2.500)"
+        # prev_gap=10 -> start inset applied (start moves inward first)
+        # then offset_left expands start back out
+        inset_start = 2.0 + inset_s
+        start_s = max(0.0, inset_start - offset_left_s)
+        end_s = 2.5 + offset_right_s
+        expected = f"between(t,{start_s:.3f},{end_s:.3f})"
         assert manifest.host_filters[0].params["enable"] == expected
 
     def test_no_inset_when_gaps_large(self):
-        """Gaps larger than threshold -> no inset; timestamps unchanged."""
+        """Gaps larger than threshold -> no inset; offset_left still expands start."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
+        from config import WORDS_TO_REMOVE
+        offset_left_s = WORDS_TO_REMOVE.get("filler_mute_offset_left_ms", 5) / 1000.0
+        offset_right_s = WORDS_TO_REMOVE.get("filler_mute_offset_right_ms", 0) / 1000.0
         processor = WordMuter({})
         manifest = processor.process(
             EditManifest(), _mock_audio(10.0), _mock_audio(10.0),
             {"filler_word_detector": [self._segment(2.0, 2.3, prev_gap=500, next_gap=500)]},
         )
-        assert manifest.host_filters[0].params["enable"] == "between(t,2.000,2.300)"
+        start_s = max(0.0, 2.0 - offset_left_s)
+        end_s = 2.3 + offset_right_s
+        assert manifest.host_filters[0].params["enable"] == f"between(t,{start_s:.3f},{end_s:.3f})"
 
     def test_both_sides_inset_when_both_gaps_small(self):
-        """Both neighbours slurred -> both start and end are inset."""
+        """Both neighbours slurred -> both start and end are inset; offsets applied after."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
         from config import WORDS_TO_REMOVE
         inset_s = WORDS_TO_REMOVE.get("filler_mute_inset_ms", 30) / 1000.0
+        offset_left_s = WORDS_TO_REMOVE.get("filler_mute_offset_left_ms", 5) / 1000.0
+        offset_right_s = WORDS_TO_REMOVE.get("filler_mute_offset_right_ms", 0) / 1000.0
         processor = WordMuter({})
         manifest = processor.process(
             EditManifest(), _mock_audio(10.0), _mock_audio(10.0),
             {"filler_word_detector": [self._segment(2.0, 2.5, prev_gap=10, next_gap=5)]},
         )
-        expected = f"between(t,{2.0 + inset_s:.3f},{2.5 - inset_s:.3f})"
+        inset_start = 2.0 + inset_s
+        inset_end = 2.5 - inset_s
+        start_s = max(0.0, inset_start - offset_left_s)
+        end_s = inset_end + offset_right_s
+        expected = f"between(t,{start_s:.3f},{end_s:.3f})"
         assert manifest.host_filters[0].params["enable"] == expected
 
     def test_collapsed_window_reverts_to_full(self):
-        """When inset collapses the window (start >= end), full original range is used."""
+        """When inset collapses the window (start >= end), full original range is used; offsets applied after."""
         from core.interfaces import EditManifest
         from processors.word_muter import WordMuter
+        from config import WORDS_TO_REMOVE
+        offset_left_s = WORDS_TO_REMOVE.get("filler_mute_offset_left_ms", 5) / 1000.0
+        offset_right_s = WORDS_TO_REMOVE.get("filler_mute_offset_right_ms", 0) / 1000.0
         processor = WordMuter({})
         # Word is only 10ms long; two 30ms insets would invert the window.
         manifest = processor.process(
             EditManifest(), _mock_audio(10.0), _mock_audio(10.0),
             {"filler_word_detector": [self._segment(2.000, 2.010, prev_gap=5, next_gap=5)]},
         )
-        assert manifest.host_filters[0].params["enable"] == "between(t,2.000,2.010)"
+        # Reverted to full extent, then offset applied
+        start_s = max(0.0, 2.000 - offset_left_s)
+        end_s = 2.010 + offset_right_s
+        assert manifest.host_filters[0].params["enable"] == f"between(t,{start_s:.3f},{end_s:.3f})"
