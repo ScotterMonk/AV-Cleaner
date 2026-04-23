@@ -54,7 +54,16 @@ def test_normalize_video_lengths_normalizes_when_outside_tolerance(monkeypatch):
     from io_ import media_preflight
 
     durations = {"host.mp4": 10.0, "guest.mp4": 10.02}
-    monkeypatch.setattr(media_preflight, "get_video_duration_seconds", lambda p: durations[p])
+    probes: list[str] = []
+
+    # Mock get_video_duration_seconds to return original durations, then padded duration for the preflight file
+    def _get_dur(p):
+        probes.append(p)
+        if p.endswith("_preflight.mp4"):
+            return 10.02
+        return durations[p]
+
+    monkeypatch.setattr(media_preflight, "get_video_duration_seconds", _get_dur)
 
     calls = []
 
@@ -76,6 +85,31 @@ def test_normalize_video_lengths_normalizes_when_outside_tolerance(monkeypatch):
     assert padded.input_path == "host.mp4"
     assert padded.target_duration_s == pytest.approx(10.02)
     assert padded.pad_seconds == pytest.approx(0.02)
+    assert probes == ["host.mp4", "guest.mp4", host_out, "guest.mp4"]
+
+
+def test_normalize_video_lengths_raises_on_alignment_failure(monkeypatch):
+    """Verify that if padding fails to align, it raises RuntimeError."""
+    from io_ import media_preflight
+
+    durations = {"host.mp4": 10.0, "guest.mp4": 10.02}
+    probes: list[str] = []
+
+    # Mock get_video_duration_seconds to return original durations, then a BAD padded duration
+    def _get_dur(p):
+        probes.append(p)
+        if p.endswith("_preflight.mp4"):
+            return 10.008  # Still not 10.02 and outside the 0.01s tolerance
+        return durations.get(p, 0.0)
+
+    monkeypatch.setattr(media_preflight, "get_video_duration_seconds", _get_dur)
+    monkeypatch.setattr(media_preflight, "_video_pad_efficient", lambda p: None)
+
+    # The code raises RuntimeError, but we need to ensure it's caught
+    with pytest.raises(RuntimeError, match="Preflight alignment failed"):
+        media_preflight.normalize_video_lengths("host.mp4", "guest.mp4")
+
+    assert probes == ["host.mp4", "guest.mp4", "host_preflight.mp4", "guest.mp4"]
 
 
 def test_normalize_video_lengths_mismatch_pads_shorter_only(monkeypatch):
@@ -103,8 +137,14 @@ def test_normalize_video_lengths_mismatch_pads_shorter_only(monkeypatch):
 
     monkeypatch.setattr(media_preflight, "logger", _FakeLogger())
 
-    durations = {"host.mp4": 10.0, "guest.mp4": 8.0}
-    monkeypatch.setattr(media_preflight, "get_video_duration_seconds", lambda p: durations[p])
+    durations = {"host.mp4": 10.0, "guest.mp4": 8.0, "guest_preflight.mp4": 10.0}
+    probes: list[str] = []
+
+    def _get_dur(path: str) -> float:
+        probes.append(path)
+        return durations[path]
+
+    monkeypatch.setattr(media_preflight, "get_video_duration_seconds", _get_dur)
 
     calls = []
 
@@ -126,7 +166,9 @@ def test_normalize_video_lengths_mismatch_pads_shorter_only(monkeypatch):
     assert padded.input_path == "guest.mp4"
     assert padded.target_duration_s == pytest.approx(10.0)
     assert padded.pad_seconds == pytest.approx(2.0)
+    assert probes == ["host.mp4", "guest.mp4", "host.mp4", guest_out]
 
     # Completion log messages should be present.
+    assert any("Preflight pair verification passed" in m for m in logged), "Expected verification success log"
     assert any("[PREFLIGHT COMPLETE]" in m for m in logged), "Expected [PREFLIGHT COMPLETE] log"
     assert any("Preflight pair written" in m for m in logged), "Expected 'Preflight pair written' in log"

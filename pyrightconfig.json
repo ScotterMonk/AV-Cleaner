@@ -2,6 +2,7 @@
   "pythonPath": "./venv/Scripts/python.exe",
   "include": ["."],
   "exclude": ["venv", ".venv", ".pytest_cache", "__pycache__"],
+  "ignore": ["venv/**", ".venv/**"],
   "reportMissingImports": true,
   "reportMissingModuleSource": false
 }

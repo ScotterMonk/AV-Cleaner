@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import subprocess
 
+import ffmpeg
+
 
 def get_video_duration_seconds(video_path: str) -> float:
     """Return the media container duration (seconds) as reported by ffprobe.
@@ -298,3 +300,27 @@ def probe_is_vfr(video_path: str) -> bool:
 
     # If avg and declared rates differ by more than 1 %, treat as VFR.
     return abs(r_fps - avg_fps) / max(r_fps, avg_fps) > 0.01
+
+
+def probe_audio_sample_rate(path: str) -> int | None:
+    """Return the first audio stream sample rate in Hz, or ``None`` on failure.
+
+    Uses ``ffmpeg.probe`` so callers can cheaply inspect source audio parameters
+    without invoking a separate subprocess wrapper. This is intentionally lenient:
+    probe failures, missing audio streams, and invalid sample-rate values all
+    return ``None`` so higher-level logic can fall back to safe defaults.
+    """
+    try:
+        probe = ffmpeg.probe(path)
+    except Exception:
+        return None
+
+    for stream in probe.get("streams", []):
+        if stream.get("codec_type") != "audio":
+            continue
+        try:
+            return int(stream.get("sample_rate"))
+        except (TypeError, ValueError):
+            return None
+
+    return None

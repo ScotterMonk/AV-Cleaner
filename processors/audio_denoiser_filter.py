@@ -17,10 +17,10 @@ class AudioDenoiserFilter(BaseProcessor):
         # host_audio, guest_audio, and detection_results are intentionally unused.
         if self.config.get("noise_reduction_host"):
             # afftdn has no 'mode' option; defaults to white-noise (stationary) reduction
-            manifest.add_host_filter("afftdn")
+            manifest.add_host_filter("afftdn", stage="post_trim")
 
         if self.config.get("noise_reduction_guest"):
-            manifest.add_guest_filter("afftdn")
+            manifest.add_guest_filter("afftdn", stage="post_trim")
 
         return manifest
 

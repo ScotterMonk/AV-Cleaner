@@ -269,8 +269,8 @@ def test_auto_routing_non_h264_selects_single_pass(monkeypatch, tmp_path):
     assert not captured["keyframe_probes"]
 
 
-def test_auto_routing_few_segments_selects_smart_copy(monkeypatch, tmp_path):
-    """auto routing must keep small h264 workloads on smart_copy."""
+def test_auto_routing_few_segments_selects_single_pass(monkeypatch, tmp_path):
+    """auto routing must keep small h264 workloads on single_pass."""
     _tp, captured = _patch_render_project_auto_dependencies(monkeypatch, source_codec="h264")
 
     manifest = _ManifestTP(
@@ -288,9 +288,9 @@ def test_auto_routing_few_segments_selects_smart_copy(monkeypatch, tmp_path):
         {"video_phase_strategy": "auto", "gpu_limit_pct": 60},
     )
 
-    assert len(captured["smart_copy"]) == 1
-    assert captured["smart_copy"][0]["segs"] == manifest.keep_segments
-    assert not captured["single_pass"]
+    assert len(captured["single_pass"]) == 1
+    assert captured["single_pass"][0]["segs"] == manifest.keep_segments
+    assert not captured["smart_copy"]
     assert not captured["batched_gpu"]
 
 

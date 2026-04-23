@@ -7,19 +7,22 @@ from click.testing import CliRunner
 def test_main_preflights_normalize_lengths_for_guest_only_action(monkeypatch):
     import main as main_module
 
-    calls: dict[str, object] = {}
+    normalized_calls: list[tuple[str, str]] = []
+    execute_calls: list[tuple[str, str, dict[str, object]]] = []
+    build_pipeline_called = False
 
     def fake_normalize_video_lengths(host: str, guest: str) -> tuple[str, str]:
-        calls["normalized"] = (host, guest)
+        normalized_calls.append((host, guest))
         return "H_norm.mp4", "G_norm.mp4"
 
     class _FakePipeline:
         def execute(self, host: str, guest: str, **kwargs):
-            calls["execute"] = (host, guest, kwargs)
+            execute_calls.append((host, guest, kwargs))
             return "host_out.mp4", "guest_out.mp4"
 
     def fake_build_pipeline(config: dict):
-        calls["build_pipeline"] = True
+        nonlocal build_pipeline_called
+        build_pipeline_called = True
         return _FakePipeline()
 
     monkeypatch.setattr(main_module, "normalize_video_lengths", fake_normalize_video_lengths)
@@ -36,9 +39,11 @@ def test_main_preflights_normalize_lengths_for_guest_only_action(monkeypatch):
         ],
     )
     assert result.exit_code == 0, result.output
-    assert calls["normalized"] == ("H.mp4", "G.mp4")
+    assert normalized_calls == [("H.mp4", "G.mp4")]
+    assert build_pipeline_called is True
+    assert len(execute_calls) == 1
 
-    host, guest, kwargs = calls["execute"]
+    host, guest, kwargs = execute_calls[0]
     assert (host, guest) == ("H_norm.mp4", "G_norm.mp4")
     assert kwargs == {}
 
@@ -46,17 +51,22 @@ def test_main_preflights_normalize_lengths_for_guest_only_action(monkeypatch):
 def test_main_preflights_normalize_lengths_for_all_action(monkeypatch):
     import main as main_module
 
-    calls: dict[str, object] = {}
+    normalized_calls: list[tuple[str, str]] = []
+    execute_calls: list[tuple[str, str, dict[str, object]]] = []
+    build_pipeline_called = False
 
     def fake_normalize_video_lengths(host: str, guest: str) -> tuple[str, str]:
+        normalized_calls.append((host, guest))
         return "H_norm.mp4", "G_norm.mp4"
 
     class _FakePipeline:
         def execute(self, host: str, guest: str, **kwargs):
-            calls["execute"] = (host, guest, kwargs)
+            execute_calls.append((host, guest, kwargs))
             return "host_out.mp4", "guest_out.mp4"
 
     def fake_build_pipeline(config: dict):
+        nonlocal build_pipeline_called
+        build_pipeline_called = True
         return _FakePipeline()
 
     monkeypatch.setattr(main_module, "normalize_video_lengths", fake_normalize_video_lengths)
@@ -74,6 +84,10 @@ def test_main_preflights_normalize_lengths_for_all_action(monkeypatch):
     )
     assert result.exit_code == 0, result.output
 
-    host, guest, kwargs = calls["execute"]
+    assert normalized_calls == [("H.mp4", "G.mp4")]
+    assert build_pipeline_called is True
+    assert len(execute_calls) == 1
+
+    host, guest, kwargs = execute_calls[0]
     assert (host, guest) == ("H_norm.mp4", "G_norm.mp4")
     assert kwargs == {}

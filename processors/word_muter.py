@@ -177,9 +177,9 @@ class WordMuter(BaseProcessor):
         track = str(detail.get("track") or "").lower()
 
         if track == "host":
-            manifest.add_host_filter("volume", volume=0, enable=enable_expr)
+            manifest.add_host_filter("volume", volume=0, enable=enable_expr, stage="original_timeline")
         elif track == "guest":
-            manifest.add_guest_filter("volume", volume=0, enable=enable_expr)
+            manifest.add_guest_filter("volume", volume=0, enable=enable_expr, stage="original_timeline")
         else:
             logger.warning(
                 "[WordMuter] Cannot mute word %r at %.3f-%.3fs: unknown track %r",

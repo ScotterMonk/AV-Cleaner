@@ -32,9 +32,10 @@ def test_audio_normalizer_match_host_uses_detection_results_and_adds_guest_volum
     assert len(manifest.guest_filters) == 1
     assert manifest.guest_filters[0].filter_name == "volume"
     assert manifest.guest_filters[0].params == {"volume": "6.0dB"}
+    assert manifest.guest_filters[0].stage == "post_trim"
 
     assert manifest.guest_audio_gain_db_applied == pytest.approx(6.0)
-    assert not hasattr(manifest, "guest_audio_gain_db_estimate")
+    assert manifest.guest_audio_gain_db_estimate is None
 
 
 def test_audio_normalizer_standard_lufs_uses_detection_results_and_adds_loudnorm_to_both_tracks() -> None:
@@ -62,13 +63,15 @@ def test_audio_normalizer_standard_lufs_uses_detection_results_and_adds_loudnorm
     assert len(manifest.host_filters) == 1
     assert manifest.host_filters[0].filter_name == "loudnorm"
     assert manifest.host_filters[0].params == loudnorm_params
+    assert manifest.host_filters[0].stage == "post_trim"
 
     assert len(manifest.guest_filters) == 1
     assert manifest.guest_filters[0].filter_name == "loudnorm"
     assert manifest.guest_filters[0].params == loudnorm_params
+    assert manifest.guest_filters[0].stage == "post_trim"
 
     assert manifest.guest_audio_gain_db_estimate == pytest.approx(8.0)
-    assert not hasattr(manifest, "guest_audio_gain_db_applied")
+    assert manifest.guest_audio_gain_db_applied is None
 
 
 def test_audio_normalizer_errors_when_detection_results_missing() -> None:

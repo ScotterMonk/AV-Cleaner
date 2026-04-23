@@ -5,7 +5,16 @@ import tkinter as tk
 from tkinter import messagebox
 
 from ui.gui_config_editor import ConfigEditor
-from ui.gui_settings_builders import build_gui_form, build_pipeline_form, render_pipeline_toggles
+from ui.gui_settings_builders import (
+    BoolVarMap,
+    StringVarMap,
+    build_gui_form,
+    build_pipeline_form,
+    render_pipeline_toggles,
+    string_var_get,
+    string_var_map_get,
+    string_var_map_set,
+)
 from ui.video_player_picker import video_player_pick
 from utils.video_player_discovery import video_player_discover, video_player_platform_label
 
@@ -14,11 +23,21 @@ from utils.video_player_discovery import video_player_discover, video_player_pla
 SETTINGS_PANES_HEIGHT_REDUCTION_PX = 120
 
 
+# Modified by openai/gpt-5.4 | 2026-04-23
 class SettingsPage(tk.Frame):
+    # Modified by openai/gpt-5.4 | 2026-04-23
     def __init__(self, parent: tk.Widget, app) -> None:
         super().__init__(parent, bg=app._palette["bg"])
         self._app = app
         self._config_path = app._project_dir / "config.py"
+        self._vars: StringVarMap = {}
+        self._pipe_vars: BoolVarMap = {}
+        self._word_vars: StringVarMap = {}
+        self._qual_vars: StringVarMap = {}
+        self._bool_vars: BoolVarMap = {}
+        self._norm_mode: tk.StringVar = tk.StringVar(master=self)
+        self._enc_mode: tk.StringVar = tk.StringVar(master=self)
+        self._enc_quality: tk.StringVar = tk.StringVar(master=self)
 
         # Footer (packed first to reserve space at bottom)
         footer = tk.Frame(self, bg=app._palette["bg"])
@@ -63,7 +82,7 @@ class SettingsPage(tk.Frame):
     # Video-player scan                                                    #
     # ------------------------------------------------------------------ #
 
-    # Created by gpt-5.4 | 2026-03-07
+    # Modified by openai/gpt-5.4 | 2026-04-23
     def _scan_default_video_player(self) -> None:
         options = video_player_discover()
         if not options:
@@ -78,7 +97,7 @@ class SettingsPage(tk.Frame):
         if not selected_path:
             return
 
-        self._vars["default_video_player"].set(selected_path)
+        string_var_map_set(self._vars, "default_video_player", selected_path)
         player_name = Path(selected_path).name
         self._app.set_status(f"Default video player selected: {player_name}. Click SAVE TO config.py.")
 
@@ -86,7 +105,7 @@ class SettingsPage(tk.Frame):
     # Reload                                                               #
     # ------------------------------------------------------------------ #
 
-    # Modified by gpt-5.4 | 2026-03-07
+    # Modified by openai/gpt-5.4 | 2026-04-23
     def _reload(self) -> None:
         try:
             gui_dict, pipe_cfg, qual_presets, words_cfg = ConfigEditor.load_gui_pipeline_quality_words(
@@ -96,8 +115,8 @@ class SettingsPage(tk.Frame):
             messagebox.showerror("Config load failed", str(e))
             return
 
-        for k, v in self._vars.items():
-            v.set(str(gui_dict.get(k, "")))
+        for key in self._vars:
+            string_var_map_set(self._vars, key, gui_dict.get(key, ""))
 
         self._render_pipeline_toggles(pipe_cfg, qual_presets, words_cfg)
         self._app.set_status("Settings loaded")
@@ -106,11 +125,11 @@ class SettingsPage(tk.Frame):
     # Save                                                                 #
     # ------------------------------------------------------------------ #
 
-    # Modified 2026-03-15: added all previously missing config.py fields
+    # Modified by openai/gpt-5.4 | 2026-04-23
     def _save(self) -> None:
         # ---- local conversion helpers ----
         def to_int(key: str) -> int:
-            raw = self._vars[key].get().strip()
+            raw = string_var_map_get(self._vars, key).strip()
             if raw == "":
                 raise ValueError(f"{key} is required")
             try:
@@ -119,13 +138,13 @@ class SettingsPage(tk.Frame):
                 raise ValueError(f"{key} must be an integer")
 
         def to_color(key: str) -> str:
-            raw = self._vars[key].get().strip()
+            raw = string_var_map_get(self._vars, key).strip()
             if raw == "":
                 raise ValueError(f"{key} is required")
             return raw
 
         def to_int_s(var: tk.StringVar, label: str) -> int:
-            raw = var.get().strip()
+            raw = string_var_get(var).strip()
             if raw == "":
                 raise ValueError(f"{label} is required")
             try:
@@ -134,7 +153,7 @@ class SettingsPage(tk.Frame):
                 raise ValueError(f"{label} must be an integer")
 
         def to_float_s(var: tk.StringVar, label: str) -> float:
-            raw = var.get().strip()
+            raw = string_var_get(var).strip()
             if raw == "":
                 raise ValueError(f"{label} is required")
             try:
@@ -143,7 +162,7 @@ class SettingsPage(tk.Frame):
                 raise ValueError(f"{label} must be a number")
 
         def to_float_word(key: str, label: str) -> float:
-            raw = self._word_vars[key].get().strip()
+            raw = string_var_map_get(self._word_vars, key).strip()
             if raw == "":
                 raise ValueError(f"{label} is required")
             try:
@@ -152,7 +171,7 @@ class SettingsPage(tk.Frame):
                 raise ValueError(f"{label} must be a number")
 
         def to_int_word(key: str, label: str) -> int:
-            raw = self._word_vars[key].get().strip()
+            raw = string_var_map_get(self._word_vars, key).strip()
             if raw == "":
                 raise ValueError(f"{label} is required")
             try:
@@ -165,14 +184,14 @@ class SettingsPage(tk.Frame):
             gui_update = {
                 "gui_width": to_int("gui_width"),
                 "gui_height": to_int("gui_height"),
-                "font_family": self._vars["font_family"].get().strip() or "Segoe UI",
+                "font_family": string_var_map_get(self._vars, "font_family").strip() or "Segoe UI",
                 "font_title_size": to_int("font_title_size"),
                 "font_section_size": to_int("font_section_size"),
                 "font_body_size": to_int("font_body_size"),
-                "font_mono_family": self._vars["font_mono_family"].get().strip() or "Cascadia Mono",
+                "font_mono_family": string_var_map_get(self._vars, "font_mono_family").strip() or "Cascadia Mono",
                 "font_mono_size": to_int("font_mono_size"),
                 "button_height": to_int("button_height"),
-                "default_video_player": self._vars["default_video_player"].get().strip(),
+                "default_video_player": string_var_map_get(self._vars, "default_video_player").strip(),
                 "ui_button_caption_color": to_color("ui_button_caption_color"),
                 "ui_accent_font_color": to_color("ui_accent_font_color"),
                 "ui_accent_line_color": to_color("ui_accent_line_color"),
@@ -215,7 +234,7 @@ class SettingsPage(tk.Frame):
 
             # Normalization
             preset["normalization"] = {
-                "mode": self._norm_mode.get().strip() or "MATCH_HOST",
+                "mode": string_var_get(self._norm_mode).strip() or "MATCH_HOST",
                 "standard_target": to_float_s(
                     self._qual_vars["normalization_standard_target"], "Standard target (LUFS)"
                 ),
@@ -225,32 +244,30 @@ class SettingsPage(tk.Frame):
             }
 
             # Encoder (CPU vs GPU)
-            is_gpu = self._enc_mode.get() == "gpu"
+            is_gpu = string_var_get(self._enc_mode) == "gpu"
             qual_val = to_int_s(self._enc_quality, "Quality (CRF/CQ)")
             preset["cuda_encode_enabled"] = is_gpu
             preset["cuda_decode_enabled"] = bool(self._bool_vars["cuda_decode_enabled"].get())
             preset["cuda_require_support"] = bool(self._bool_vars["cuda_require_support"].get())
 
             # CPU encoding
-            preset["video_codec"] = self._qual_vars["video_codec"].get().strip() or "libx264"
-            preset["video_preset"] = self._qual_vars["video_preset"].get().strip() or "fast"
+            preset["video_codec"] = string_var_map_get(self._qual_vars, "video_codec").strip() or "libx264"
+            preset["video_preset"] = string_var_map_get(self._qual_vars, "video_preset").strip() or "fast"
             preset["crf"] = qual_val
 
             # Audio
-            preset["audio_codec"] = self._qual_vars["audio_codec"].get().strip() or "aac"
-            preset["audio_bitrate"] = self._qual_vars["audio_bitrate"].get().strip() or "320k"
+            preset["audio_codec"] = string_var_map_get(self._qual_vars, "audio_codec").strip() or "aac"
+            preset["audio_bitrate"] = string_var_map_get(self._qual_vars, "audio_bitrate").strip() or "320k"
 
             # NVENC block
             if "nvenc" not in preset or not isinstance(preset["nvenc"], dict):
                 preset["nvenc"] = {}
-            preset["nvenc"]["codec"] = self._qual_vars["nvenc_codec"].get().strip() or "h264_nvenc"
-            preset["nvenc"]["preset"] = self._qual_vars["nvenc_preset"].get().strip() or "p4"
-            preset["nvenc"]["rc"] = self._qual_vars["nvenc_rc"].get().strip() or "vbr"
+            preset["nvenc"]["codec"] = string_var_map_get(self._qual_vars, "nvenc_codec").strip() or "h264_nvenc"
+            preset["nvenc"]["preset"] = string_var_map_get(self._qual_vars, "nvenc_preset").strip() or "p4"
+            preset["nvenc"]["rc"] = string_var_map_get(self._qual_vars, "nvenc_rc").strip() or "vbr"
             preset["nvenc"]["cq"] = qual_val
 
             # Render / performance
-            preset["chunk_parallel_enabled"] = bool(self._bool_vars["chunk_parallel_enabled"].get())
-            preset["chunk_size"] = to_int_s(self._qual_vars["chunk_size"], "Chunk size")
             preset["cut_fade_ms"] = to_int_s(self._qual_vars["cut_fade_ms"], "Cut fade (ms)")
             preset["two_phase_render_enabled"] = bool(self._bool_vars["two_phase_render_enabled"].get())
             preset["keyframe_snap_tolerance_s"] = to_float_s(
@@ -270,13 +287,13 @@ class SettingsPage(tk.Frame):
                 "60% -> 3 workers": 60,
                 "20% -> 1 worker": 20,
             }
-            gpu_label = self._qual_vars["gpu_limit_pct"].get().strip()
+            gpu_label = string_var_map_get(self._qual_vars, "gpu_limit_pct").strip()
             preset["gpu_limit_pct"] = _gpu_label_to_pct.get(gpu_label, 100)
 
-            preset["video_phase_strategy"] = self._qual_vars["video_phase_strategy"].get().strip() or "auto"
+            preset["video_phase_strategy"] = string_var_map_get(self._qual_vars, "video_phase_strategy").strip() or "auto"
 
             # ---- Words to remove ----
-            words_raw = self._word_vars["words_to_remove"].get().strip()
+            words_raw = string_var_map_get(self._word_vars, "words_to_remove").strip()
             words_cfg["words_to_remove"] = [w.strip() for w in words_raw.split(",") if w.strip()]
             words_cfg["confidence_required_host"] = to_float_word(
                 "confidence_required_host", "Host confidence required"

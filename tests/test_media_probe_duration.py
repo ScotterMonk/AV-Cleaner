@@ -60,3 +60,48 @@ def test_get_video_duration_seconds_parses_float(monkeypatch, tmp_path):
 
     assert media_probe.get_video_duration_seconds(str(p)) == 12.5
 
+
+def test_probe_audio_sample_rate_returns_first_audio_stream_rate(monkeypatch):
+    from io_ import media_probe
+
+    monkeypatch.setattr(
+        media_probe.ffmpeg,
+        "probe",
+        lambda _path: {
+            "streams": [
+                {"codec_type": "video", "r_frame_rate": "30/1"},
+                {"codec_type": "audio", "sample_rate": "48000"},
+                {"codec_type": "audio", "sample_rate": "44100"},
+            ]
+        },
+    )
+
+    assert media_probe.probe_audio_sample_rate("fake.mp4") == 48000
+
+
+def test_probe_audio_sample_rate_returns_none_on_probe_failure(monkeypatch):
+    from io_ import media_probe
+
+    def _raise(_path):
+        raise RuntimeError("probe failed")
+
+    monkeypatch.setattr(media_probe.ffmpeg, "probe", _raise)
+
+    assert media_probe.probe_audio_sample_rate("fake.mp4") is None
+
+
+def test_probe_audio_sample_rate_returns_none_on_missing_or_invalid_rate(monkeypatch):
+    from io_ import media_probe
+
+    monkeypatch.setattr(
+        media_probe.ffmpeg,
+        "probe",
+        lambda _path: {
+            "streams": [
+                {"codec_type": "audio", "sample_rate": "not-an-int"},
+            ]
+        },
+    )
+
+    assert media_probe.probe_audio_sample_rate("fake.mp4") is None
+

@@ -8,6 +8,7 @@ from analyzers import audio_denoiser
 from .interfaces import EditManifest
 from io_ import audio_extractor
 from io_ import video_renderer
+from core.sync_invariants import assert_manifest_consistency, assert_output_pair_sync
 from utils.path_helpers import make_processed_output_path
 from utils.logger import get_logger, format_duration, format_time_cut
 from utils.time_helpers import seconds_to_hms
@@ -241,13 +242,34 @@ class ProcessingPipeline:
         host_out = make_processed_output_path(host_video_path) if render_host else None
         guest_out = make_processed_output_path(guest_video_path) if render_guest else None
 
+        # Validate manifest before rendering
+        host_duration = host_audio.duration_seconds
+        guest_duration = guest_audio.duration_seconds
+        assert_manifest_consistency(manifest, host_duration, guest_duration)
+        logger.info("[DETAIL] Manifest validation passed.")
+
         logger.info("[FUNCTION START] Render videos")
-        video_renderer.render_project(
+        render_metadata = video_renderer.render_project(
             host_video_path, guest_video_path,
             manifest,
             host_out, guest_out,
             self.config
         )
+
+        strategy_family = None
+        if isinstance(render_metadata, dict):
+            strategy_family = render_metadata.get("strategy_family")
+
+        if host_out and guest_out:
+            assert_output_pair_sync(
+                host_out,
+                guest_out,
+                strategy_family=strategy_family,
+            )
+            strategy_suffix = (
+                f" | strategy_family={strategy_family}" if strategy_family else ""
+            )
+            logger.info("[DETAIL] Post-render sync validation passed%s", strategy_suffix)
 
         phase3_duration = time.time() - phase3_start
         logger.info(f"[FUNCTION COMPLETE] Render videos - Took {format_duration(phase3_duration)}")

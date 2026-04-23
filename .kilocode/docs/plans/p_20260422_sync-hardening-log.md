@@ -1,0 +1,96 @@
+# Log — Sync Hardening
+
+**Plan**: p_20260422_sync-hardening.
+**Started**: 2026-04-22.
+
+## Status
+- [x] User query captured.
+- [x] Similar plan history reviewed.
+- [x] Codebase scope inspected.
+- [x] Draft plan created.
+- [x] User review complete.
+- [ ] Dispatcher handoff complete.
+
+## Architect Notes
+- Captured the request from [`plan.md`](plan.md).
+- Reviewed prior structure and handoff style in [`p_20260401_av-sync-fix.md`](.kilocode/docs/plans_completed/p_20260401_av-sync-fix.md).
+- Inspected the current sync-relevant surfaces in [`_run_process()`](main.py:114), [`ProcessingPipeline.execute()`](core/pipeline.py:104), [`AudioFilter`](core/interfaces.py:8), [`_build_filter_chain()`](io_/video_renderer.py:275), [`render_project()`](io_/video_renderer.py:702), [`render_project_two_phase()`](io_/video_renderer_twophase.py:282), [`normalize_video_lengths()`](io_/media_preflight.py:209), [`render_pipeline_toggles()`](ui/gui_settings_builders.py:215), and [`SettingsPage._save()`](ui/gui_settings_page.py:110).
+- Identified current-code adjustments that materially affect the plan:
+    - [`render_audio_phase()`](io_/video_renderer_twophase.py:63) already compensates `afftdn` warm-up.
+    - [`render_project_two_phase()`](io_/video_renderer_twophase.py:282) already writes `.m4a` temp audio.
+    - [`config.py`](config.py) already defaults `video_phase_strategy` to `auto`, but the GUI fallback still defaults to `smart_copy`.
+    - [`io_/video_renderer.py`](io_/video_renderer.py) and [`tests/test_video_renderer_twophase.py`](tests/test_video_renderer_twophase.py) are already oversized, so the plan explicitly schedules extraction or split work instead of adding more logic in place.
+- Drafted a dispatcher-ready multi-phase plan focused on the remaining sync-hardening risks and the dead chunk-parallel path.
+- 2026-04-22 23:33 UTC: User approved the plan with the phrase `approve and start work`. Dispatcher handoff is the next step.
+- 2026-04-22 18:34; Dispatcher started; plan=sync-hardening; autonomy=med; testing=appropriate per task
+- 2026-04-22 18:34; START; phase=P1; task=T0; mode=tasky; summary=Backup Phase 1 target files to the plan backup folder
+- 2026-04-22 18:34; END; phase=P1; task=T0; status=success; notes=Created Phase 1 backups for core pipeline and interfaces files
+- 2026-04-22 18:35; START; phase=P1; task=T1; mode=coder-sr; summary=Create sync invariant module with manifest and output validation helpers
+- 2026-04-22 18:39; END; phase=P1; task=T1; status=success; notes=Added sync invariant module and focused passing pytest coverage
+- 2026-04-22 18:39; START; phase=P1; task=T2; mode=coder-jr; summary=Wire manifest validation into pipeline before rendering
+- 2026-04-22 18:40; END; phase=P1; task=T2; status=success; notes=Pipeline now validates manifests before render with focused passing tests
+- 2026-04-22 18:40; START; phase=P1; task=T3; mode=coder-jr; summary=Add invariant unit tests for manifest and output validation contract
+- 2026-04-22 18:41; END; phase=P1; task=T3; status=success; notes=Expanded invariant tests now cover overlap and invalid between bounds cases
+- 2026-04-22 18:41; START; phase=P2; task=T0; mode=tasky; summary=Backup Phase 2 target files to the plan backup folder
+- 2026-04-22 18:41; END; phase=P2; task=T0; status=success; notes=Created Phase 2 backups for interfaces processors and renderer files
+- 2026-04-22 18:41; START; phase=P2; task=T4; mode=coder-sr; summary=Extend audio filter model with stage metadata
+- 2026-04-22 18:44; END; phase=P2; task=T4; status=success; notes=Added backward-compatible audio filter stage metadata with updated passing tests
+- 2026-04-22 18:44; START; phase=P2; task=T5; mode=coder-jr; summary=Mark word mute filters as original timeline
+- 2026-04-22 18:44; END; phase=P2; task=T5; status=success; notes=Word mute filters now declare original_timeline stage with passing tests
+- 2026-04-22 18:45; START; phase=P2; task=T6; mode=coder-jr; summary=Mark full track render filters as post trim
+- 2026-04-22 18:45; END; phase=P2; task=T6; status=success; notes=Full-track render filters now declare post_trim stage with passing tests
+- 2026-04-22 18:46; START; phase=P2; task=T7; mode=coder-sr; summary=Extract staged audio helpers and enforce renderer ordering
+- 2026-04-22 18:49; END; phase=P2; task=T7; status=success; notes=Extracted staged audio helpers and added passing renderer staging tests
+- 2026-04-22 18:49; START; phase=P2; task=T8; mode=coder-jr; summary=Add focused renderer staging tests in new module
+- 2026-04-22 18:50; END; phase=P2; task=T8; status=success; notes=Focused staging tests now cover mis-staged guard behavior in the new module
+- 2026-04-22 18:50; START; phase=P3; task=T0; mode=tasky; summary=Backup Phase 3 target files to the plan backup folder
+- 2026-04-22 18:50; END; phase=P3; task=T0; status=success; notes=Created Phase 3 backups for pipeline two-phase renderer and routing test files
+- 2026-04-22 18:51; START; phase=P3; task=T9; mode=coder-sr; summary=Add shared auto route selection for paired two phase renders
+- 2026-04-22 18:56; END; phase=P3; task=T9; status=success; notes=Two-phase auto routing is now shared per paired render with focused passing routing tests
+- 2026-04-22 18:56; START; phase=P3; task=T10; mode=coder-jr; summary=Remove smart_copy from auto while preserving manual override
+- 2026-04-22 18:57; END; phase=P3; task=T10; status=success; notes=Auto routing now excludes smart_copy while manual override remains covered by tests
+- 2026-04-22 18:57; START; phase=P3; task=T11; mode=coder-sr; summary=Wire hard post-render sync validation using renderer metadata
+- 2026-04-22 19:02; END; phase=P3; task=T11; status=success; notes=Pipeline now enforces post-render sync validation with renderer metadata and passing mocked tests
+- 2026-04-22 19:02; START; phase=P3; task=T12; mode=coder-jr; summary=Add focused routing and sync validation tests
+- 2026-04-22 19:03; END; phase=P3; task=T12; status=success; notes=Focused routing and sync-validation tests added with passing targeted pytest runs
+- 2026-04-22 19:03; START; phase=P4; task=T0; mode=tasky; summary=Backup Phase 4 target files to the plan backup folder
+- 2026-04-22 19:03; END; phase=P4; task=T0; status=success; notes=Created Phase 4 backups for renderer config GUI and preflight related files
+- 2026-04-22 19:04; START; phase=P4; task=T13; mode=coder-sr; summary=Remove chunk parallel renderer path and preserve non two phase fallback
+- 2026-04-22 19:11; END; phase=P4; task=T13; status=success; notes=Removed chunk-parallel path, preserved single-pass fallback, and reduced renderer surface via extraction
+- 2026-04-22 19:11; START; phase=P4; task=T14; mode=coder-jr; summary=Remove dead chunk config and GUI surface and default GUI route to auto
+- 2026-04-22 19:12; END; phase=P4; task=T14; status=success; notes=Removed dead chunk config and GUI settings and defaulted GUI route fallback to auto
+- 2026-04-22 19:12; START; phase=P4; task=T15; mode=coder-jr; summary=Add post preflight pair verification
+- 2026-04-22 19:13; END; phase=P4; task=T15; status=success; notes=Preflight now verifies returned pair alignment after padding with passing tests
+- 2026-04-22 19:13; START; phase=P4; task=T16; mode=coder-jr; summary=Update and prune tests for chunk removal and preflight hardening
+- 2026-04-23 00:31 UTC: Execution paused for an architect addendum after targeted issue review surfaced dynamic manifest typing gaps, normalize-plus-spike harness failures against post-render sync validation, narrow routing-test metadata typing, GUI Tk variable typing noise, and a vendored AssemblyAI SDK warning inside the workspace venv.
+- 2026-04-23 00:33 UTC: Architect amended the sync-hardening plan with a new type-safety and environment-hygiene phase before final regression, while keeping the AssemblyAI SDK resolution at the environment boundary unless the user later approves a direct vendored hotfix.
+- 2026-04-23 00:41 UTC: T16 resumed in coder-jr; confirmed [`tests/test_chunk_rendering.py`](tests/test_chunk_rendering.py) is already absent, tightened preflight tests to assert post-padding verification probes and logging, and preserved existing `_preflight` GUI result-path coverage in [`tests/test_gui_result_line.py`](tests/test_gui_result_line.py).
+- 2026-04-22 19:14; END; phase=P4; task=T16; status=success; notes=Preflight and GUI tests updated for verification behavior while preserving `_preflight` path coverage
+- 2026-04-22 19:14; START; phase=P5; task=T0; mode=tasky; summary=Backup Phase 5 target files to the plan backup folder
+- 2026-04-22 19:15; END; phase=P5; task=T0; status=success; notes=Created Phase 5 backup set for interfaces normalizer routing GUI and pyright files
+- 2026-04-22 19:15; START; phase=P5; task=T17; mode=coder-jr; summary=Promote audio normalizer summary fields into typed manifest state
+- 2026-04-22 19:16; END; phase=P5; task=T17; status=success; notes=Normalization summary state is now typed on EditManifest with passing focused tests
+- 2026-04-22 19:16; START; phase=P5; task=T18; mode=coder-jr; summary=Repair normalize plus spike pipeline tests for post render validation
+- 2026-04-22 19:17; END; phase=P5; task=T18; status=success; notes=Normalize plus spike pipeline tests now stub post render validation and pass again
+- 2026-04-22 19:17; START; phase=P5; task=T19; mode=coder-jr; summary=Type the two phase routing metadata assertions
+- 2026-04-22 19:18; END; phase=P5; task=T19; status=success; notes=Two phase routing metadata assertions now use typed helpers with passing focused tests
+- 2026-04-22 19:18; START; phase=P5; task=T20; mode=coder-sr; summary=Add explicit Tk variable typing to settings save and reload paths
+- 2026-04-22 19:19; END; phase=P5; task=T20; status=success; notes=GUI settings save and reload paths now use typed Tk variable helpers with passing focused tests
+- 2026-04-22 19:19; START; phase=P5; task=T21; mode=coder-sr; summary=Resolve the vendored AssemblyAI SDK warning at the environment boundary
+- 2026-04-22 19:20; END; phase=P5; task=T21; status=success; notes=Pyright now ignores vendored venv diagnostics and repo code remains REST based without AssemblyAI imports
+- 2026-04-22 19:20; START; phase=P6; task=T22; mode=coder-sr; summary=Perform the explicit refactor pass on touched oversized files
+- 2026-04-22 19:21; END; phase=P6; task=T22; status=success; notes=Split touched two phase renderer tests into focused modules and brought active oversized surfaces under the line limit
+- 2026-04-22 19:21; START; phase=P6; task=T23; mode=tasky; summary=Run the targeted sync hardening regression and analysis sweep
+- 2026-04-22 19:22; END; phase=P6; task=T23; status=success; notes=Focused sync hardening tests passed and targeted analysis was attempted but limited by missing pyright tooling
+- 2026-04-22 19:22; START; phase=P6; task=T24; mode=tasky; summary=Run the full regression suite and close out the plan execution
+- 2026-04-23 00:52 UTC: T21 confirmed there are no live repo `assemblyai` imports via workspace-wide Python import search, verified [`FillerWordDetector.detect()`](detectors/filler_word_detector.py:55) stays REST-based through `requests`, and tightened [`pyrightconfig.json`](pyrightconfig.json) with a repo-level [`ignore`](pyrightconfig.json:5) boundary for `venv/**` and `.venv/**` so vendored site-packages diagnostics are excluded from project analysis without patching [`venv/Lib/site-packages/assemblyai/transcriber.py`](venv/Lib/site-packages/assemblyai/transcriber.py:1282).
+- 2026-04-23 00:52 UTC: T21 analysis verification attempted with Pyright CLI, but the workspace lacks both a global `pyright` executable and an installed `pyright` module in [`venv/Scripts/python.exe`](pyrightconfig.json:2), so command-level confirmation was limited to config inspection plus failed-tool evidence rather than a full analyzer run.
+- 2026-04-23 01:03 UTC: T22 split the touched legacy two-phase renderer tests into focused in-scope modules covering media-probe parsing, audio-phase graph construction, quantization and keyframe classification, single-pass helper routing, smart-copy cleanup, and render-project orchestration so the active sync-hardening test surface is materially smaller and cleaner without widening scope.
+- 2026-04-23 01:03 UTC: T22 verified the focused renderer test surface with [`pytest`](AGENTS.md) on [`tests/test_media_probe_video.py`](tests/test_media_probe_video.py), [`tests/test_video_renderer_twophase_audio_phase.py`](tests/test_video_renderer_twophase_audio_phase.py), [`tests/test_video_renderer_twophase_quantize.py`](tests/test_video_renderer_twophase_quantize.py), [`tests/test_video_renderer_twophase_single_pass.py`](tests/test_video_renderer_twophase_single_pass.py), [`tests/test_video_renderer_twophase_project.py`](tests/test_video_renderer_twophase_project.py), [`tests/test_video_renderer_twophase_smart_copy_cleanup.py`](tests/test_video_renderer_twophase_smart_copy_cleanup.py), [`tests/test_video_renderer_twophase_routing.py`](tests/test_video_renderer_twophase_routing.py), and the remaining [`tests/test_video_renderer_twophase.py`](tests/test_video_renderer_twophase.py) cases; all 65 passed.
+- 2026-04-23 01:03 UTC: T22 line-count verification confirmed touched logic files now sit within the 600-line rule, including [`io_/video_renderer.py`](io_/video_renderer.py) at 541 lines, [`tests/test_video_renderer_twophase.py`](tests/test_video_renderer_twophase.py) at 493 lines, and [`tests/test_video_renderer_twophase_project.py`](tests/test_video_renderer_twophase_project.py) at 597 lines.
+- 2026-04-23 01:03 UTC: T22 completed; END; phase=P6; task=T22; status=success; notes=Focused refactor pass split oversized touched tests into smaller modules and kept renderer footprint under the line limit with passing targeted pytest coverage
+- 2026-04-23 12:13 UTC: T24 resumed in tasky; reused the active full-suite terminal run from [`pytest`](AGENTS.md) to complete the pending regression closeout without starting a duplicate process.
+- 2026-04-23 12:13 UTC: T24 verified full regression success with `pytest tests/ --ignore=backups --tb=short`; 294 tests passed in 2.44s with 0 failures, and `backups/` remained excluded because stale snapshot imports there are non-live artifacts.
+- 2026-04-23 12:13 UTC: END; phase=P6; task=T24; status=success; notes=Full regression suite passed cleanly and sync-hardening acceptance criteria remain satisfied
+- 2026-04-23 12:13 UTC: PLAN EXECUTION COMPLETE; plan=sync-hardening; total_tasks=25; success=25; blocked=0; failed=0; duration=17h39m
+- 2026-04-23 07:12; END; phase=P6; task=T24; status=success; notes=Full regression suite: 294 passed in 2.44s. No sync-hardening regressions. backups/ excluded from collection (stale import on removed partition_segments). All plan acceptance criteria satisfied. Plan execution complete.

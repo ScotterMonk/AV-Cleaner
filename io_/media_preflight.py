@@ -274,6 +274,16 @@ def normalize_video_lengths(host_path: str, guest_path: str) -> tuple[str, str]:
 
     _video_pad_efficient(plan)
 
+    # Verify alignment after padding
+    new_host_d = get_video_duration_seconds(out_host)
+    new_guest_d = get_video_duration_seconds(out_guest)
+    if abs(new_host_d - new_guest_d) > 0.01:
+        raise RuntimeError(
+            f"Preflight alignment failed: host={new_host_d:.3f}s guest={new_guest_d:.3f}s "
+            f"delta={abs(new_host_d - new_guest_d):.3f}s > 0.01s tolerance"
+        )
+    logger.info("Preflight pair verification passed: host=%.3fs guest=%.3fs", new_host_d, new_guest_d)
+
     preflight_duration = time.time() - preflight_start
     from utils.logger import format_duration, format_time_cut
 

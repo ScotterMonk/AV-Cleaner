@@ -1,11 +1,21 @@
 # processors/audio_normalizer.py
 
+from typing import Any
+
+from core.interfaces import EditManifest
+
 from .base_processor import BaseProcessor
 from utils.logger import get_logger
 
 # Modified by gpt-5.2 | 2026-01-20_01
 class AudioNormalizer(BaseProcessor):
-    def process(self, manifest, host_audio, guest_audio, detection_results):
+    def process(
+        self,
+        manifest: EditManifest,
+        host_audio,
+        guest_audio,
+        detection_results: dict[str, Any] | None,
+    ) -> EditManifest:
         logger = get_logger(__name__)
         if not detection_results:
             raise ValueError(
@@ -53,7 +63,7 @@ class AudioNormalizer(BaseProcessor):
 
             # Host gets NO filter (it is the reference)
             # Guest gets volume filter
-            manifest.add_guest_filter("volume", volume=f"{guest_gain_db}dB")
+            manifest.add_guest_filter("volume", volume=f"{guest_gain_db}dB", stage="post_trim")
 
         elif mode == "STANDARD_LUFS":
             target_lufs = audio_level_results.get("target_lufs")
@@ -72,8 +82,8 @@ class AudioNormalizer(BaseProcessor):
             manifest.guest_audio_gain_db_estimate = float(target_lufs - guest_lufs)
 
             # Apply identical loudnorm to BOTH (params computed during detection)
-            manifest.add_host_filter("loudnorm", **loudnorm_params)
-            manifest.add_guest_filter("loudnorm", **loudnorm_params)
+            manifest.add_host_filter("loudnorm", stage="post_trim", **loudnorm_params)
+            manifest.add_guest_filter("loudnorm", stage="post_trim", **loudnorm_params)
 
         else:
             raise ValueError(

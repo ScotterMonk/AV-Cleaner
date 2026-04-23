@@ -162,10 +162,12 @@ class TestWordMuter:
         host_start = max(0.0, 1.0 - offset_left_s)
         host_end = 1.5 + offset_right_s
         assert manifest.host_filters[0].params == {"volume": 0, "enable": f"between(t,{host_start:.3f},{host_end:.3f})"}
+        assert manifest.host_filters[0].stage == "original_timeline"
         assert len(manifest.guest_filters) == 1
         guest_start = max(0.0, 6.0 - offset_left_s)
         guest_end = 6.4 + offset_right_s
         assert manifest.guest_filters[0].params == {"volume": 0, "enable": f"between(t,{guest_start:.3f},{guest_end:.3f})"}
+        assert manifest.guest_filters[0].stage == "original_timeline"
 
     def test_no_detections_leaves_manifest_unchanged(self):
         from core.interfaces import EditManifest
@@ -236,6 +238,7 @@ class TestWordMuter:
         end_s = 2.3 + offset_right_s
         assert [f.filter_name for f in manifest.host_filters] == ["volume"]
         assert manifest.host_filters[0].params == {"volume": 0, "enable": f"between(t,{start_s:.3f},{end_s:.3f})"}
+        assert manifest.host_filters[0].stage == "original_timeline"
         assert manifest.word_mutes == [(2.0, 2.3)]
 
     def test_word_on_guest_mutes(self):
@@ -256,6 +259,7 @@ class TestWordMuter:
         end_s = 2.3 + offset_right_s
         assert manifest.keep_segments == []  # no cut
         assert [f.filter_name for f in manifest.guest_filters] == ["volume"]
+        assert manifest.guest_filters[0].stage == "original_timeline"
         assert manifest.word_mutes == [(2.0, 2.3)]
 
     def test_get_name(self):

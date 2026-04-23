@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+from typing import Any
 
 # Keep consistent with other tests (ex: tests/test_imports.py): allow importing repo-root modules.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -71,13 +72,18 @@ def _patch_pipeline_deps(
 def _capture_manifest(monkeypatch):
     from core import pipeline as pipeline_mod
 
-    captured = {"manifest": None, "config": None}
+    captured: dict[str, Any] = {"manifest": None, "config": None, "sync": None}
 
     def _fake_render_project(host_path, guest_path, manifest, out_host, out_guest, config):
         captured["manifest"] = manifest
         captured["config"] = config
+        return {"strategy_family": "single_pass"}
+
+    def _fake_assert_output_pair_sync(host_output, guest_output, *, strategy_family=None):
+        captured["sync"] = (host_output, guest_output, strategy_family)
 
     monkeypatch.setattr(pipeline_mod.video_renderer, "render_project", _fake_render_project)
+    monkeypatch.setattr(pipeline_mod, "assert_output_pair_sync", _fake_assert_output_pair_sync)
     return captured
 
 
@@ -114,14 +120,19 @@ def test_pipeline_match_host_normalize_then_spike_fix(monkeypatch):
 
     manifest = captured["manifest"]
     assert manifest is not None
+    assert captured["sync"] == ("host_processed.mp4", "guest_processed.mp4", "single_pass")
+    assert manifest.guest_filters is not None
 
     # MATCH_HOST: guest gets `volume` normalization.
-    assert [f.filter_name for f in manifest.guest_filters][:1] == ["volume"]
+    guest_filters = [f for f in manifest.guest_filters if f.filter_name in {"volume", "alimiter"}]
+    assert [f.filter_name for f in guest_filters][:1] == ["volume"]
+    assert guest_filters[0].stage == "post_trim"
     # SpikeFixer: adds a limiter when spikes detected.
-    assert [f.filter_name for f in manifest.guest_filters][-1:] == ["alimiter"]
+    assert [f.filter_name for f in guest_filters][-1:] == ["alimiter"]
+    assert guest_filters[-1].stage == "post_trim"
 
     # Verify render-stage ordering: normalization before spike fix.
-    names = [f.filter_name for f in manifest.guest_filters]
+    names = [f.filter_name for f in guest_filters]
     assert names.index("volume") < names.index("alimiter")
 
 
@@ -157,13 +168,22 @@ def test_pipeline_standard_lufs_normalize_then_spike_fix(monkeypatch):
 
     manifest = captured["manifest"]
     assert manifest is not None
+    assert captured["sync"] == ("host_processed.mp4", "guest_processed.mp4", "single_pass")
+    assert manifest.host_filters is not None
+    assert manifest.guest_filters is not None
+
+    host_filters = [f for f in manifest.host_filters if f.filter_name == "loudnorm"]
+    guest_filters = [f for f in manifest.guest_filters if f.filter_name in {"loudnorm", "alimiter"}]
 
     # STANDARD_LUFS: both tracks get `loudnorm`.
-    assert [f.filter_name for f in manifest.host_filters] == ["loudnorm"]
-    assert [f.filter_name for f in manifest.guest_filters][:1] == ["loudnorm"]
+    assert [f.filter_name for f in host_filters] == ["loudnorm"]
+    assert host_filters[0].stage == "post_trim"
+    assert [f.filter_name for f in guest_filters][:1] == ["loudnorm"]
+    assert guest_filters[0].stage == "post_trim"
 
     # SpikeFixer: adds limiter after loudnorm when spikes detected.
-    assert [f.filter_name for f in manifest.guest_filters][-1:] == ["alimiter"]
-    names = [f.filter_name for f in manifest.guest_filters]
+    assert [f.filter_name for f in guest_filters][-1:] == ["alimiter"]
+    assert guest_filters[-1].stage == "post_trim"
+    names = [f.filter_name for f in guest_filters]
     assert names.index("loudnorm") < names.index("alimiter")
 

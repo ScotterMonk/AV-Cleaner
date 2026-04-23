@@ -17,6 +17,7 @@ result when iterating on video-only parameters, cutting total processing
 time by 40–70 % on typical podcast files.
 """
 
+import math
 import os
 import subprocess
 import tempfile
@@ -28,6 +29,7 @@ import ffmpeg
 
 from io_.media_probe import (
     get_video_duration_seconds,
+    probe_audio_sample_rate,
     probe_is_vfr,
     probe_video_fps,
     probe_video_keyframes,
@@ -46,6 +48,16 @@ from io_.video_renderer_progress import run_with_progress
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _afftdn_delay_s(sample_rate: int | float) -> float:
+    """Return the `afftdn` warm-up delay in seconds for the given sample rate.
+
+    FFmpeg's frequency-domain denoiser buffers one 4096-sample analysis window
+    before steady-state output begins.  Convert that fixed sample delay to
+    seconds and round up to 4 decimals so downstream trim math is conservative.
+    """
+    return math.ceil((4096.0 / float(sample_rate)) * 10000.0) / 10000.0
 
 
 def render_audio_phase(
@@ -71,12 +83,16 @@ def render_audio_phase(
     # Step 1: merge micro-gap pairs before constructing the filter graph.
     keep_segments = merge_close_segments(keep_segments)
 
+    # Probe sample rate for afftdn delay compensation (fallback to 48000 Hz).
+    _sample_rate = probe_audio_sample_rate(input_path) or 48000
+
     logger.debug(
-        "render_audio_phase(%s): keep_segments=%d filters=%d out=%s",
+        "render_audio_phase(%s): keep_segments=%d filters=%d out=%s sample_rate=%d",
         os.path.basename(input_path),
         len(keep_segments),
         len(filters or []),
         os.path.basename(out_path),
+        _sample_rate,
     )
 
     # Step 2: build the base audio stream from the source file.
@@ -84,8 +100,21 @@ def render_audio_phase(
     a = inp.audio
 
     # Step 3: apply audio filters sequentially.
+    # When afftdn is encountered, immediately trim its warm-up silence so that
+    # silence does not propagate to the encoder and shift audio timing.
     for f in filters or []:
         a = a.filter(f.filter_name, **f.params)
+        if f.filter_name == "afftdn":
+            # afftdn introduces warm-up silence of approximately fft_length samples.
+            # Trim that silence immediately so it does not propagate to the encoder.
+            _delay_s = _afftdn_delay_s(_sample_rate)
+            logger.debug(
+                "render_audio_phase(%s): afftdn delay compensation: trimming %.4f s",
+                os.path.basename(input_path),
+                _delay_s,
+            )
+            a = a.filter_("atrim", start=_delay_s)
+            a = a.filter_("asetpts", "PTS-STARTPTS")
 
     # Step 4: initialise audio_inputs before any conditional branch.
     audio_inputs = None
@@ -249,6 +278,17 @@ def quantize_segments_to_frames(
     return video_renderer_strategies.quantize_segments_to_frames(keep_segments, fps)
 
 
+def _shared_segment_count(keep_segments: list) -> int:
+    """Return the shared segment count used for route-family selection."""
+    return len(keep_segments) if keep_segments else 1
+
+
+def _store_render_metadata(cfg: dict, metadata: dict) -> dict:
+    """Persist lightweight render metadata for later logging or validation."""
+    cfg["_two_phase_render_metadata"] = metadata
+    return metadata
+
+
 # Modified by gpt-5.4 | 2026-03-31
 def render_project_two_phase(
     host_path: str,
@@ -257,7 +297,7 @@ def render_project_two_phase(
     out_host: str | None,
     out_guest: str | None,
     config: dict | None,
-) -> None:
+) -> dict:
     """Orchestrate two-phase (audio-first) rendering for host and guest tracks."""
     from io_.video_renderer import probe_ffmpeg_capabilities, select_enc_opts
     caps = probe_ffmpeg_capabilities()
@@ -271,9 +311,70 @@ def render_project_two_phase(
     enc_opts["threads"] = thread_count
     audio_opts["threads"] = thread_count
     snap_tol = float(cfg.get("keyframe_snap_tolerance_s", 0.1))
+    render_tasks: list[tuple[str, str, str, list]] = []
+    if out_host:
+        render_tasks.append(("Host", host_path, out_host, manifest.host_filters))
+    if out_guest and guest_path is not None:
+        render_tasks.append(("Guest", guest_path, out_guest, manifest.guest_filters))
+
+    requested_strategy = cfg.get("video_phase_strategy", "auto")
+    shared_segment_count = _shared_segment_count(manifest.keep_segments)
+    source_codecs: dict[str, str] = {}
+    shared_strategy = requested_strategy
+
+    if requested_strategy == "auto":
+        source_codecs = {
+            label.lower(): probe_video_stream_codec(src_path)
+            for label, src_path, _dst_path, _filters in render_tasks
+        }
+        if any(codec != "h264" for codec in source_codecs.values()):
+            shared_strategy = "single_pass"
+        elif shared_segment_count > 25:
+            shared_strategy = "batched_gpu"
+        else:
+            # Removed 'smart_copy' from auto-selection path.
+            shared_strategy = "single_pass"
+        logger.info(
+            "two-phase: shared auto strategy selected=%r (codecs=%r segments=%d tracks=%d)",
+            shared_strategy,
+            source_codecs,
+            shared_segment_count,
+            len(render_tasks),
+        )
+
+    render_metadata = _store_render_metadata(
+        cfg,
+        {
+            "route_mode": "auto" if requested_strategy == "auto" else "manual",
+            "strategy_family": shared_strategy,
+            "requested_strategy": requested_strategy,
+            "shared_segment_count": shared_segment_count,
+            "source_codecs": dict(source_codecs),
+            "tracks": {},
+        },
+    )
+
     def _render_track(src_path: str, filters: list, to_path: str, label: str = "") -> None:
         # Normalize empty keep_segments to full-duration span.
         segs = manifest.keep_segments or [(0.0, get_video_duration_seconds(src_path))]
+        track_key = label.lower() if label else os.path.basename(src_path)
+        source_codec = render_metadata["source_codecs"].get(track_key)
+        if source_codec is None:
+            source_codec = probe_video_stream_codec(src_path)
+            render_metadata["source_codecs"][track_key] = source_codec
+        strategy = shared_strategy
+        if source_codec != "h264" and strategy not in ("single_pass", "batched_gpu"):
+            logger.info(
+                "two-phase: non-h264 codec=%r; overriding strategy to single_pass",
+                source_codec,
+            )
+            strategy = "single_pass"
+        render_metadata["tracks"][track_key] = {
+            "source_codec": source_codec,
+            "strategy_family": strategy,
+            "output_path": to_path,
+            "segment_count": len(segs),
+        }
 
         # VFR diagnostic: log whether the source appears to be variable frame rate.
         # The vsync=passthrough enc_opt protects against VFR drift regardless, but
@@ -299,18 +400,22 @@ def render_project_two_phase(
         vid_fps = probe_video_fps(src_path)
         if vid_fps:
             segs = quantize_segments_to_frames(segs, vid_fps)
+            render_metadata["tracks"][track_key]["fps"] = vid_fps
+            render_metadata["tracks"][track_key]["segment_count_quantized"] = len(segs)
             logger.info(
                 "[DETAIL] %sframe quantization: %d segments snapped to %.4f fps grid",
                 f"{label} " if label else "", len(segs), vid_fps,
             )
         else:
+            render_metadata["tracks"][track_key]["fps"] = None
+            render_metadata["tracks"][track_key]["segment_count_quantized"] = len(segs)
             logger.warning(
                 "two-phase: could not probe FPS for %s; skipping frame quantization",
                 os.path.basename(src_path),
             )
 
         out_dir = Path(to_path).parent
-        fd, tmp_audio = tempfile.mkstemp(suffix=".aac", dir=str(out_dir))
+        fd, tmp_audio = tempfile.mkstemp(suffix=".m4a", dir=str(out_dir))
         os.close(fd)
         fd, tmp_video = tempfile.mkstemp(suffix=".mp4", dir=str(out_dir))
         os.close(fd)
@@ -332,32 +437,6 @@ def render_project_two_phase(
                     "[DETAIL] %sCPU override applied at video-phase seam: threads %s -> %d",
                     pfx, enc_opts.get("threads"), fresh_threads,
                 )
-
-            source_codec = probe_video_stream_codec(src_path)
-            strategy = cfg.get("video_phase_strategy", "auto")
-
-            if strategy == "auto":
-                if source_codec != "h264":
-                    strategy = "single_pass"
-                elif len(segs) <= 5:
-                    strategy = "smart_copy"
-                elif len(segs) <= 25:
-                    strategy = "single_pass"
-                else:
-                    strategy = "batched_gpu"
-                logger.info(
-                    "two-phase: auto strategy selected=%r (codec=%r segments=%d)",
-                    strategy,
-                    source_codec,
-                    len(segs),
-                )
-
-            if source_codec != "h264" and strategy not in ("single_pass", "batched_gpu"):
-                logger.info(
-                    "two-phase: non-h264 codec=%r; overriding strategy to single_pass",
-                    source_codec,
-                )
-                strategy = "single_pass"
 
             if strategy == "single_pass":
                 logger.info("two-phase: video_phase_strategy=single_pass; single-pass render")
@@ -434,20 +513,14 @@ def render_project_two_phase(
                 except OSError:
                     pass
 
-    render_tasks: list = []
-    if out_host:
-        def _host_fn(to_path: str, _s=host_path, _f=manifest.host_filters) -> None:
-            _render_track(_s, _f, to_path, label="Host")
-        render_tasks.append(("Host", host_path, out_host, _host_fn))
-    if out_guest and guest_path is not None:
-        def _guest_fn(to_path: str, _s=guest_path, _f=manifest.guest_filters) -> None:
-            _render_track(_s, _f, to_path, label="Guest")
-        render_tasks.append(("Guest", guest_path, out_guest, _guest_fn))
-
-    def _run(task: tuple) -> None:
-        label, src, dst, fn = task
+    def _run(task: tuple[str, str, str, list]) -> None:
+        label, src, dst, filters = task
         logger.info("Rendering %s Video (two-phase)...", label)
-        _render_with_safe_overwrite(src, dst, fn)
+        _render_with_safe_overwrite(
+            src,
+            dst,
+            lambda to_path, _s=src, _f=filters, _label=label: _render_track(_s, _f, to_path, label=_label),
+        )
 
     if len(render_tasks) == 1:
         _run(render_tasks[0])
@@ -457,3 +530,5 @@ def render_project_two_phase(
             futures = [executor.submit(_run, t) for t in render_tasks]
         for future in futures:
             future.result()
+
+    return render_metadata

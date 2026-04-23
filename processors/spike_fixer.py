@@ -33,6 +33,7 @@ class SpikeFixer(BaseProcessor):
 
         manifest.add_guest_filter(
             "alimiter",
+            stage="post_trim",
             limit=limit,
             attack=attack_ms,
             release=release_ms,

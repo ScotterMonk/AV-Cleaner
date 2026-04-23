@@ -21,7 +21,7 @@ class BaseProcessor(ABC):
         self.config = config
 
     @abstractmethod
-    def process(self, manifest: EditManifest, host_audio, guest_audio, detection_results: Dict[str, Any]) -> EditManifest:
+    def process(self, manifest: EditManifest, host_audio, guest_audio, detection_results: Dict[str, Any] | None) -> EditManifest:
         """
         Logic to determine how the video/audio should be modified.
         
@@ -30,6 +30,7 @@ class BaseProcessor(ABC):
             host_audio: Pydub AudioSegment (Reference only, do not modify).
             guest_audio: Pydub AudioSegment (Reference only, do not modify).
             detection_results: Dictionary of findings from the Detectors.
+                May be None when validating processor error handling in direct tests.
             
         Returns:
             The updated EditManifest.

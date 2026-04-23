@@ -10,14 +10,50 @@ from __future__ import annotations
 
 import tkinter as tk
 
+TkStringVar = tk.StringVar
+TkBoolVar = tk.BooleanVar
+StringVarMap = dict[str, TkStringVar]
+BoolVarMap = dict[str, TkBoolVar]
+
 # Vertical gap between input rows inside the GUI-settings pane.
 _ROW_GAP = 4
+
+
+# Created by openai/gpt-5.4 | 2026-04-23
+def string_coerce(value: object) -> str:
+    """Return a concrete string for Tk-backed settings values."""
+    return value if isinstance(value, str) else str(value)
+
+
+# Created by openai/gpt-5.4 | 2026-04-23
+def string_var_get(var: TkStringVar) -> str:
+    """Read a Tk string variable as a concrete string."""
+    return string_coerce(var.get())
+
+
+# Created by openai/gpt-5.4 | 2026-04-23
+def string_var_set(var: TkStringVar, value: object) -> None:
+    """Write a coerced string value into a Tk string variable."""
+    var.set(string_coerce(value))
+
+
+# Created by openai/gpt-5.4 | 2026-04-23
+def string_var_map_get(vars_map: StringVarMap, key: str) -> str:
+    """Read a named Tk string variable as a concrete string."""
+    return string_var_get(vars_map[key])
+
+
+# Created by openai/gpt-5.4 | 2026-04-23
+def string_var_map_set(vars_map: StringVarMap, key: str, value: object) -> None:
+    """Write a coerced string value into a named Tk string variable."""
+    string_var_set(vars_map[key], value)
 
 
 # ---------------------------------------------------------------------------
 # GUI pane
 # ---------------------------------------------------------------------------
 
+# Modified by openai/gpt-5.4 | 2026-04-23
 def build_gui_form(page, parent: tk.Frame) -> None:
     """Build the GUI-settings form and store tk.StringVars on *page._vars*."""
     app = page._app
@@ -114,6 +150,7 @@ def build_gui_form(page, parent: tk.Frame) -> None:
 # Pipeline pane – scrollable container setup
 # ---------------------------------------------------------------------------
 
+# Modified by openai/gpt-5.4 | 2026-04-23
 def build_pipeline_form(page, parent: tk.Frame) -> None:
     """
     Create all pipeline tk.Vars and set up the scrollable canvas.
@@ -150,7 +187,6 @@ def build_pipeline_form(page, parent: tk.Frame) -> None:
         "nvenc_preset": tk.StringVar(value="p4"),
         "nvenc_rc": tk.StringVar(value="vbr"),
         # Render / performance
-        "chunk_size": tk.StringVar(value="50"),
         "cut_fade_ms": tk.StringVar(value="16"),
         "keyframe_snap_tolerance_s": tk.StringVar(value="0.1"),
         "cpu_limit_pct": tk.StringVar(value="80"),
@@ -168,7 +204,6 @@ def build_pipeline_form(page, parent: tk.Frame) -> None:
     page._bool_vars = {
         "cuda_decode_enabled": tk.BooleanVar(value=False),
         "cuda_require_support": tk.BooleanVar(value=True),
-        "chunk_parallel_enabled": tk.BooleanVar(value=True),
         "two_phase_render_enabled": tk.BooleanVar(value=True),
     }
 
@@ -212,6 +247,7 @@ def build_pipeline_form(page, parent: tk.Frame) -> None:
 # Pipeline pane – actual form rendering (called on every reload)
 # ---------------------------------------------------------------------------
 
+# Modified by openai/gpt-5.4 | 2026-04-23
 def render_pipeline_toggles(page, pipe_cfg: dict, qual_presets: dict, words_cfg: dict) -> None:
     """Clear and repopulate the scrollable pipeline pane with current config values."""
     app = page._app
@@ -223,59 +259,59 @@ def render_pipeline_toggles(page, pipe_cfg: dict, qual_presets: dict, words_cfg:
     # ---- load preset values ----
     preset = qual_presets.get("PODCAST_HIGH_QUALITY", {})
 
-    page._qual_vars["silence_threshold_db"].set(str(preset.get("silence_threshold_db", -30)))
-    page._qual_vars["max_pause_duration"].set(str(preset.get("max_pause_duration", 1.0)))
-    page._qual_vars["new_pause_duration"].set(str(preset.get("new_pause_duration", 0.8)))
-    page._qual_vars["silence_window_ms"].set(str(preset.get("silence_window_ms", 200)))
-    page._qual_vars["spike_threshold_db"].set(str(preset.get("spike_threshold_db", -5)))
+    string_var_map_set(page._qual_vars, "silence_threshold_db", preset.get("silence_threshold_db", -30))
+    string_var_map_set(page._qual_vars, "max_pause_duration", preset.get("max_pause_duration", 1.0))
+    string_var_map_set(page._qual_vars, "new_pause_duration", preset.get("new_pause_duration", 0.8))
+    string_var_map_set(page._qual_vars, "silence_window_ms", preset.get("silence_window_ms", 200))
+    string_var_map_set(page._qual_vars, "spike_threshold_db", preset.get("spike_threshold_db", -5))
 
     norm = preset.get("normalization") if isinstance(preset.get("normalization"), dict) else {}
-    page._norm_mode.set(str(norm.get("mode", "MATCH_HOST")))
-    page._qual_vars["normalization_standard_target"].set(str(norm.get("standard_target", -16.0)))
-    page._qual_vars["normalization_max_gain_db"].set(str(norm.get("max_gain_db", 15.0)))
+    string_var_set(page._norm_mode, norm.get("mode", "MATCH_HOST"))
+    string_var_map_set(page._qual_vars, "normalization_standard_target", norm.get("standard_target", -16.0))
+    string_var_map_set(page._qual_vars, "normalization_max_gain_db", norm.get("max_gain_db", 15.0))
 
-    page._qual_vars["audio_codec"].set(str(preset.get("audio_codec", "aac")))
-    page._qual_vars["audio_bitrate"].set(str(preset.get("audio_bitrate", "320k")))
-    page._qual_vars["video_codec"].set(str(preset.get("video_codec", "libx264")))
-    page._qual_vars["video_preset"].set(str(preset.get("video_preset", "fast")))
+    string_var_map_set(page._qual_vars, "audio_codec", preset.get("audio_codec", "aac"))
+    string_var_map_set(page._qual_vars, "audio_bitrate", preset.get("audio_bitrate", "320k"))
+    string_var_map_set(page._qual_vars, "video_codec", preset.get("video_codec", "libx264"))
+    string_var_map_set(page._qual_vars, "video_preset", preset.get("video_preset", "fast"))
 
     nvenc = preset.get("nvenc") if isinstance(preset.get("nvenc"), dict) else {}
-    page._qual_vars["nvenc_codec"].set(str(nvenc.get("codec", "h264_nvenc")))
-    page._qual_vars["nvenc_preset"].set(str(nvenc.get("preset", "p4")))
-    page._qual_vars["nvenc_rc"].set(str(nvenc.get("rc", "vbr")))
+    string_var_map_set(page._qual_vars, "nvenc_codec", nvenc.get("codec", "h264_nvenc"))
+    string_var_map_set(page._qual_vars, "nvenc_preset", nvenc.get("preset", "p4"))
+    string_var_map_set(page._qual_vars, "nvenc_rc", nvenc.get("rc", "vbr"))
 
-    page._qual_vars["chunk_size"].set(str(preset.get("chunk_size", 50)))
-    page._qual_vars["cut_fade_ms"].set(str(preset.get("cut_fade_ms", 16)))
-    page._qual_vars["keyframe_snap_tolerance_s"].set(str(preset.get("keyframe_snap_tolerance_s", 0.1)))
-    page._qual_vars["cpu_limit_pct"].set(str(preset.get("cpu_limit_pct", 80)))
-    page._qual_vars["cpu_rate_correction"].set(str(preset.get("cpu_rate_correction", 0.90)))
+    string_var_map_set(page._qual_vars, "cut_fade_ms", preset.get("cut_fade_ms", 16))
+    string_var_map_set(page._qual_vars, "keyframe_snap_tolerance_s", preset.get("keyframe_snap_tolerance_s", 0.1))
+    string_var_map_set(page._qual_vars, "cpu_limit_pct", preset.get("cpu_limit_pct", 80))
+    string_var_map_set(page._qual_vars, "cpu_rate_correction", preset.get("cpu_rate_correction", 0.90))
     # Map stored int (100/60/20) back to the dropdown display string
     _gpu_pct_to_label = {100: "100% -> 5 workers", 60: "60% -> 3 workers", 20: "20% -> 1 worker"}
     _gpu_stored = int(preset.get("gpu_limit_pct", 100))
-    page._qual_vars["gpu_limit_pct"].set(_gpu_pct_to_label.get(_gpu_stored, "100% -> 5 workers"))
+    string_var_map_set(page._qual_vars, "gpu_limit_pct", _gpu_pct_to_label.get(_gpu_stored, "100% -> 5 workers"))
 
-    page._qual_vars["video_phase_strategy"].set(str(preset.get("video_phase_strategy", "smart_copy")))
+    string_var_map_set(page._qual_vars, "video_phase_strategy", preset.get("video_phase_strategy", "auto"))
 
     cuda_enc = bool(preset.get("cuda_encode_enabled", False))
     page._enc_mode.set("gpu" if cuda_enc else "cpu")
     page._bool_vars["cuda_decode_enabled"].set(bool(preset.get("cuda_decode_enabled", False)))
     page._bool_vars["cuda_require_support"].set(bool(preset.get("cuda_require_support", True)))
-    page._bool_vars["chunk_parallel_enabled"].set(bool(preset.get("chunk_parallel_enabled", True)))
     page._bool_vars["two_phase_render_enabled"].set(bool(preset.get("two_phase_render_enabled", True)))
 
-    page._enc_quality.set(str(preset.get("crf", 18)))
+    string_var_set(page._enc_quality, preset.get("crf", 18))
 
     words_list = words_cfg.get("words_to_remove", [])
     if not isinstance(words_list, list):
         words_list = []
-    page._word_vars["words_to_remove"].set(
-        ", ".join(str(w).strip() for w in words_list if str(w).strip())
+    string_var_map_set(
+        page._word_vars,
+        "words_to_remove",
+        ", ".join(str(w).strip() for w in words_list if str(w).strip()),
     )
-    page._word_vars["confidence_required_host"].set(str(words_cfg.get("confidence_required_host", 1.0)))
-    page._word_vars["confidence_required_guest"].set(str(words_cfg.get("confidence_required_guest", 0.9)))
-    page._word_vars["confidence_bonus_per_word"].set(str(words_cfg.get("confidence_bonus_per_word", 0.05)))
-    page._word_vars["filler_mute_inset_ms"].set(str(words_cfg.get("filler_mute_inset_ms", 30)))
-    page._word_vars["filler_mute_gap_threshold_ms"].set(str(words_cfg.get("filler_mute_gap_threshold_ms", 60)))
+    string_var_map_set(page._word_vars, "confidence_required_host", words_cfg.get("confidence_required_host", 1.0))
+    string_var_map_set(page._word_vars, "confidence_required_guest", words_cfg.get("confidence_required_guest", 0.9))
+    string_var_map_set(page._word_vars, "confidence_bonus_per_word", words_cfg.get("confidence_bonus_per_word", 0.05))
+    string_var_map_set(page._word_vars, "filler_mute_inset_ms", words_cfg.get("filler_mute_inset_ms", 30))
+    string_var_map_set(page._word_vars, "filler_mute_gap_threshold_ms", words_cfg.get("filler_mute_gap_threshold_ms", 60))
 
     # ---- local builder helpers ----
     def mk_section(title: str) -> tk.Frame:
@@ -469,8 +505,6 @@ def render_pipeline_toggles(page, pipe_cfg: dict, qual_presets: dict, words_cfg:
 
     # ---- Render / Performance section ----
     render_sec = mk_section("RENDER / PERFORMANCE")
-    mk_bool_row(render_sec, "chunk_parallel_enabled", "Chunk parallel enabled")
-    mk_kv_row(render_sec, "Chunk size (frames)", page._qual_vars["chunk_size"])
     mk_kv_row(render_sec, "Cut fade (ms)", page._qual_vars["cut_fade_ms"])
     mk_bool_row(render_sec, "two_phase_render_enabled", "Two-phase render enabled")
     mk_kv_row(render_sec, "Keyframe snap tolerance (sec)", page._qual_vars["keyframe_snap_tolerance_s"])

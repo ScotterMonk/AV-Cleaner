@@ -1,13 +1,17 @@
 # core/interfaces.py
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Literal
+
+AudioFilterStage = Literal["original_timeline", "post_trim"]
+DEFAULT_AUDIO_FILTER_STAGE: AudioFilterStage = "post_trim"
 
 @dataclass
 # Modified by gpt-5.4 | 2026-03-08
 class AudioFilter:
     filter_name: str
     params: Dict[str, Any]
+    stage: AudioFilterStage = DEFAULT_AUDIO_FILTER_STAGE
 
 @dataclass
 # Modified by gpt-5.4 | 2026-03-08
@@ -59,12 +63,28 @@ class EditManifest:
     # FFmpeg filters to apply to the Guest Track
     guest_filters: List[AudioFilter] = field(default_factory=list)
 
-    # ── Helpers ────────────────────────────────────────────────────────────
-    def add_host_filter(self, name, **kwargs):
-        self.host_filters.append(AudioFilter(name, kwargs))
+    # ── Audio-normalization summary bookkeeping ─────────────────────────────
+    # MATCH_HOST writes the exact applied gain; STANDARD_LUFS writes an
+    # estimate used for summary logging.
+    guest_audio_gain_db_applied: float | None = None
+    guest_audio_gain_db_estimate: float | None = None
 
-    def add_guest_filter(self, name, **kwargs):
-        self.guest_filters.append(AudioFilter(name, kwargs))
+    # ── Helpers ────────────────────────────────────────────────────────────
+    def add_host_filter(
+        self,
+        name: str,
+        stage: AudioFilterStage = DEFAULT_AUDIO_FILTER_STAGE,
+        **kwargs,
+    ) -> None:
+        self.host_filters.append(AudioFilter(name, kwargs, stage=stage))
+
+    def add_guest_filter(
+        self,
+        name: str,
+        stage: AudioFilterStage = DEFAULT_AUDIO_FILTER_STAGE,
+        **kwargs,
+    ) -> None:
+        self.guest_filters.append(AudioFilter(name, kwargs, stage=stage))
 
     def add_removal(self, start: float, end: float) -> None:
         """Append a time range (seconds) to the shared removal accumulator."""
